@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { MatchData } from '../types';
+import { MatchData, SportType } from '../types';
 
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
@@ -7,6 +8,7 @@ interface MatchInputProps {
 }
 
 const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
+  const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
   const [date, setDate] = useState('');
@@ -15,7 +17,16 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!homeTeam || !awayTeam) return;
-    onAnalyze({ homeTeam, awayTeam, date, context });
+    onAnalyze({ sport, homeTeam, awayTeam, date, context });
+  };
+
+  const getPlaceholder = (type: 'home' | 'away') => {
+    switch (sport) {
+      case 'basketball': return type === 'home' ? '예: LA Lakers' : '예: Golden State Warriors';
+      case 'baseball': return type === 'home' ? '예: NY Yankees' : '예: LA Dodgers';
+      case 'volleyball': return type === 'home' ? '예: Incheon KAL Jumbos' : '예: Ansan OK';
+      default: return type === 'home' ? '예: Tottenham' : '예: Arsenal';
+    }
   };
 
   return (
@@ -27,9 +38,37 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
         새로운 분석 요청
       </h2>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 mb-4">
+        
+        {/* Sport Selector */}
+        <div>
+          <label className="block text-slate-400 text-sm font-semibold mb-2">분석 종목 (Sport)</label>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {[
+              { id: 'football', label: '축구 ⚽' },
+              { id: 'basketball', label: '농구 🏀' },
+              { id: 'baseball', label: '야구 ⚾' },
+              { id: 'volleyball', label: '배구 🏐' },
+              { id: 'hockey', label: '하키 🏒' },
+            ].map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSport(s.id as SportType)}
+                className={`py-2 px-1 rounded-lg text-sm font-medium transition-colors border ${
+                  sport === s.id
+                    ? 'bg-emerald-600 border-emerald-500 text-white shadow-md'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 mb-2">
           <p className="text-xs text-slate-400">
-            * <span className="text-emerald-400 font-bold">Tip:</span> 데이터 검색 정확도를 위해 팀 이름은 <span className="text-white font-bold">영어</span>로 입력하는 것을 권장합니다. (예: Manchester United, Napoli)
+            * <span className="text-emerald-400 font-bold">Tip:</span> 정확한 데이터 검색을 위해 팀 이름은 <span className="text-white font-bold">영어 공식 명칭</span>으로 입력해주세요.
           </p>
         </div>
 
@@ -40,7 +79,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
               type="text"
               value={homeTeam}
               onChange={(e) => setHomeTeam(e.target.value)}
-              placeholder="예: Real Madrid"
+              placeholder={getPlaceholder('home')}
               className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
               required
             />
@@ -51,7 +90,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
               type="text"
               value={awayTeam}
               onChange={(e) => setAwayTeam(e.target.value)}
-              placeholder="예: Barcelona"
+              placeholder={getPlaceholder('away')}
               className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
               required
             />
@@ -74,7 +113,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
               type="text"
               value={context}
               onChange={(e) => setContext(e.target.value)}
-              placeholder="예: 라리가 30라운드, 챔스 4강"
+              placeholder="예: 플레이오프 1차전, 선발 투수 XX"
               className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
             />
           </div>

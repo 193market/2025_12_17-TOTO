@@ -1,4 +1,8 @@
+
+export type SportType = 'football' | 'basketball' | 'baseball' | 'volleyball' | 'hockey';
+
 export interface MatchData {
+  sport: SportType;
   homeTeam: string;
   awayTeam: string;
   date?: string;

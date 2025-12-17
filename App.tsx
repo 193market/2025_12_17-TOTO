@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import MatchInput from './components/MatchInput';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import { analyzeMatch } from './services/geminiService';
-import { MatchData, AnalysisState, AnalysisStatus } from './types';
+import { MatchData, AnalysisState } from './types';
 
 const App: React.FC = () => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
@@ -61,7 +62,7 @@ const App: React.FC = () => {
             </div>
             <div className="hidden md:flex items-center space-x-4">
               <span className="text-xs font-mono text-slate-500 border border-slate-700 px-2 py-1 rounded">
-                POWERED BY GEMINI 3.0 & API-FOOTBALL
+                POWERED BY GEMINI 3.0 & API-SPORTS
               </span>
             </div>
           </div>
@@ -73,11 +74,11 @@ const App: React.FC = () => {
         {/* Intro / Hero */}
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-extrabold text-white mb-4 tracking-tight">
-            전문적인 축구 경기 <span className="text-emerald-500">리스크 분석</span>
+            전문적인 스포츠 <span className="text-emerald-500">리스크 분석</span>
           </h1>
           <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-            API-Football의 실시간 데이터와 Gemini의 추론 능력을 결합하여 경기의 역학을 해석합니다.
-            단순한 승패 예측을 넘어, 전술적 맥락을 제공합니다.
+            API-Sports의 실시간 데이터와 Gemini의 추론 능력을 결합하여 
+            축구, 농구, 야구 등 다양한 경기의 역학을 해석합니다.
           </p>
         </div>
 
@@ -110,14 +111,14 @@ const App: React.FC = () => {
             <svg className="w-16 h-16 mx-auto mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            <p className="font-mono text-sm">경기 데이터를 입력하면 분석이 시작됩니다...</p>
+            <p className="font-mono text-sm">경기 종목과 팀 정보를 입력하면 분석이 시작됩니다...</p>
           </div>
         )}
       </main>
 
       <footer className="border-t border-slate-800 bg-slate-900/50 py-8 mt-12">
         <div className="max-w-7xl mx-auto px-4 text-center text-slate-500 text-sm">
-          <p>© {new Date().getFullYear()} MatchInsight AI. API-Football V3 & Google Gemini.</p>
+          <p>© {new Date().getFullYear()} MatchInsight AI. API-Sports & Google Gemini.</p>
           <p className="mt-2 text-xs">
             면책 조항: 이 도구는 통계 모델과 데이터를 기반으로 분석을 제공할 뿐, 결과를 보장하지 않습니다. 
             모든 투자의 책임은 본인에게 있습니다.
