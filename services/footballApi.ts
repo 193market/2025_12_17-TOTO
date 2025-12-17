@@ -44,7 +44,6 @@ export async function getTeamId(sport: SportType, teamName: string): Promise<num
   const data = await fetchFromApi(sport, '/teams', { search: teamName });
   if (data && data.length > 0) {
     // 종목마다 ID 필드 구조가 다를 수 있지만 API-Sports는 보통 response[0].team.id 또는 response[0].id 형태임
-    // 대부분 response[0].team.id를 따름
     return data[0].team?.id || data[0].id;
   }
   return null;
@@ -56,7 +55,7 @@ export async function getTeamForm(sport: SportType, teamId: number) {
   return await fetchFromApi(sport, `/${config.matchEndpoint}`, { 
     team: teamId.toString(), 
     last: '30', // 최근 30경기
-    status: 'FT' // 종료된 경기만 (Full Time) - 야구/농구 등에서도 FT가 일반적 코드
+    status: 'FT' // 종료된 경기만
   });
 }
 
@@ -79,15 +78,24 @@ export async function getStandings(sport: SportType, leagueId: number, season: s
 
 // 팀의 해당 시즌 선수 스탯 가져오기
 export async function getTeamPlayers(sport: SportType, teamId: number, season: string) {
-  // 야구, 농구 등은 /players 엔드포인트 파라미터가 다를 수 있으나, 보통 team, season을 사용함.
-  // 에러 발생 시 try-catch로 무시됨.
   return await fetchFromApi(sport, '/players', {
     team: teamId.toString(),
     season: season
   });
 }
 
+// 다음 경기의 라인업 가져오기
+export async function getFixtureLineups(sport: SportType, fixtureId: number) {
+  if (sport === 'football') {
+     // 축구만 별도 엔드포인트가 명확함
+     return await fetchFromApi(sport, '/fixtures/lineups', { fixture: fixtureId.toString() });
+  }
+  return null;
+}
+
 export async function getMatchContextData(sport: SportType, homeName: string, awayName: string) {
+  const config = SPORT_CONFIG[sport];
+
   // 1. 팀 ID 조회
   const [homeId, awayId] = await Promise.all([
     getTeamId(sport, homeName),
@@ -105,7 +113,25 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
     getHeadToHead(sport, homeId, awayId)
   ]);
 
-  // 3. 리그 순위 및 선수 데이터 조회
+  // 3. 다음 예정된 경기 조회 (라인업 확보용)
+  let lineups = null;
+  try {
+    const nextMatch = await fetchFromApi(sport, `/${config.matchEndpoint}`, {
+        h2h: `${homeId}-${awayId}`,
+        next: '1'
+    });
+    
+    if (nextMatch && nextMatch.length > 0) {
+        const fixtureId = nextMatch[0].fixture?.id || nextMatch[0].id;
+        if (fixtureId) {
+            lineups = await getFixtureLineups(sport, fixtureId);
+        }
+    }
+  } catch (e) {
+      console.warn("다음 경기/라인업 조회 실패:", e);
+  }
+
+  // 4. 리그 순위 및 선수 데이터 조회
   let standings = null;
   let homePlayers = null;
   let awayPlayers = null;
@@ -113,23 +139,17 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
   try {
     if (homeForm && homeForm.length > 0) {
       const lastMatch = homeForm[0];
-      // API-Sports 응답 구조는 대부분 league.id, league.season을 포함
       const leagueId = lastMatch.league?.id;
-      // season은 종목에 따라 number(2023) 또는 string("2023-2024")일 수 있음. 안전하게 string 변환
       const season = lastMatch.league?.season?.toString();
       
       if (season) {
-        // 순위표와 양 팀 선수 데이터를 병렬로 요청
         const [standingsData, hPlayers, aPlayers] = await Promise.all([
           leagueId ? getStandings(sport, leagueId, season) : Promise.resolve(null),
           getTeamPlayers(sport, homeId, season),
           getTeamPlayers(sport, awayId, season)
         ]);
 
-        // 순위표 구조 처리 (종목마다 약간 다를 수 있으나 보통 response[0].league.standings)
         if (standingsData && standingsData.length > 0) {
-           // 축구는 response[0].league.standings (2차원 배열)
-           // 농구 등은 response[0] 자체가 순위표일 수도 있음. 유연하게 처리 필요하지만 일단 표준 접근 시도
            standings = standingsData[0]?.league?.standings || standingsData;
         }
 
@@ -139,7 +159,6 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
     }
   } catch (e) {
     console.warn("추가 정보(순위/선수) 조회 실패:", e);
-    // 실패해도 기본 폼 데이터로 분석 진행
   }
 
   return {
@@ -147,6 +166,7 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
     homeTeam: { name: homeName, id: homeId, recentMatches: homeForm, players: homePlayers },
     awayTeam: { name: awayName, id: awayId, recentMatches: awayForm, players: awayPlayers },
     headToHead: h2h,
-    standings: standings
+    standings: standings,
+    lineups: lineups
   };
 }

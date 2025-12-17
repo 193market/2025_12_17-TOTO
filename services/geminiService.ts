@@ -6,7 +6,7 @@ import { getMatchContextData } from "./footballApi";
 const SYSTEM_INSTRUCTION = `
 **Role (역할)**
 당신은 Google Gemini 3.0 Pro 기반의 **스포츠 데이터 분석 및 리스크 평가 전문 AI**입니다. 
-당신은 사용자가 선택한 종목(축구, 농구, 야구 등)의 **실제 API 데이터(최근 경기, 상대 전적, 순위, 선수 스탯)**를 바탕으로 경기를 분석합니다.
+당신은 사용자가 선택한 종목(축구, 농구, 야구 등)의 **실제 API 데이터(최근 경기, 상대 전적, 순위, 선수 스탯, 라인업)**를 바탕으로 경기를 분석합니다.
 단순한 승패 예측이 아니라, **"틀릴 가능성을 통제하는 전문가"**로서 데이터를 해석하고, 리스크를 평가하며, 합리적인 판단을 내립니다.
 
 **Analysis Philosophy (분석 철학)**
@@ -23,6 +23,11 @@ const SYSTEM_INSTRUCTION = `
 ---
 ### 🏟️ [종목] 경기 분석 리포트: [홈팀] vs [원정팀]
 **(데이터 출처: API-Sports - 최근 경기 및 선수 데이터)**
+
+### 👥 선수 라인업 (Lineups)
+**(API 데이터에 라인업이 있다면 확정 라인업을 표시하고, 없다면 'Players' 데이터를 기반으로 예상 베스트 11을 작성하십시오)**
+- **홈팀:** [선발 명단 나열] (주요 선수 코멘트)
+- **원정팀:** [선발 명단 나열] (주요 선수 코멘트)
 
 ### 📊 데이터 팩트 체크
 - **리그/시즌 현황:** (순위, 승률, 최근 분위기)
@@ -82,6 +87,7 @@ export const analyzeMatch = async (matchData: MatchData, apiKey: string) => {
       2. 두 팀 간의 상대 전적 (Head to Head)
       3. 리그 순위표 (Standings)
       4. **주요 선수 스탯 (Players)**
+      5. **라인업 (Lineups)** (확정된 경우 포함, 없으면 null)
 
       \`\`\`json
       ${JSON.stringify(sportsData, null, 2)}
@@ -91,7 +97,7 @@ export const analyzeMatch = async (matchData: MatchData, apiKey: string) => {
     prompt += `\n\n경고: API 데이터를 직접 가져오지 못했습니다 (오류: ${dataFetchError}). 대신 Google Search 도구를 사용하여 최신 통계, 선수 명단, 부상자 정보를 찾아 분석하세요.`;
   }
 
-  prompt += `\n반드시 종목(${matchData.sport})의 특성을 고려하여 선수 데이터를 반영하고, 시스템 지침에 정의된 리포트 형식을 따라 **한국어**로 출력하세요.`;
+  prompt += `\n반드시 종목(${matchData.sport})의 특성을 고려하여 선수 데이터를 반영하고, 시스템 지침에 정의된 리포트 형식을 따라 **한국어**로 출력하세요. 특히 '선수 라인업' 섹션을 충실히 작성하세요.`;
 
   try {
     const response = await ai.models.generateContent({
