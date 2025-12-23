@@ -8,12 +8,18 @@ interface MatchInputProps {
   previousAnalysis?: string | null;
 }
 
+// 비전문가를 위한 기본 프롬프트 설정
+const DEFAULT_CONTEXT = `(비전문가 모드) 최종 픽 섹션을 작성할 때 다음 3가지를 추가해주세요:
+1. 추천 강도를 '별 5개(⭐⭐⭐⭐⭐)' 만점으로 표시해 주세요.
+2. '핸디캡', '언더오버' 같은 용어 대신 "홈팀이 2점 차 이상으로 이길 듯", "양 팀 합쳐 3골 이상 터질 듯" 처럼 풀어서 설명해 주세요.
+3. 확신이 70% 미만이면 과감하게 'NO BET(베팅 금지)'이라고 적어주세요.`;
+
 const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousAnalysis }) => {
   const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
   const [date, setDate] = useState('');
-  const [context, setContext] = useState('');
+  const [context, setContext] = useState(DEFAULT_CONTEXT);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +54,8 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
 
     if (extractedText) {
       setContext((prev) => {
-        const prefix = prev ? prev + " / " : "";
+        // 기존 텍스트(가이드 등)가 있다면 줄바꿈 후 추가
+        const prefix = prev ? prev + "\n\n" : "";
         return prefix + "재분석 요청: " + extractedText;
       });
     } else {
@@ -133,8 +140,8 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             <div>
+        {/* Date Field */}
+        <div>
             <label className="block text-slate-400 text-sm font-semibold mb-2">경기 날짜 (선택)</label>
              <input
               type="date"
@@ -142,10 +149,12 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
               onChange={(e) => setDate(e.target.value)}
               className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
             />
-          </div>
-           <div>
+        </div>
+           
+        {/* Context Field (TextArea) */}
+        <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="block text-slate-400 text-sm font-semibold">경기 맥락 (선택)</label>
+              <label className="block text-slate-400 text-sm font-semibold">경기 맥락 (선택 & 가이드)</label>
               {previousAnalysis && (
                 <button
                   type="button"
@@ -160,14 +169,12 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
                 </button>
               )}
             </div>
-            <input
-              type="text"
+            <textarea
               value={context}
               onChange={(e) => setContext(e.target.value)}
               placeholder="예: 플레이오프 1차전, 선발 투수 XX"
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
+              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors h-32 text-sm leading-relaxed scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800"
             />
-          </div>
         </div>
 
         <button
