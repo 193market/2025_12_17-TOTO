@@ -94,7 +94,11 @@ const App: React.FC = () => {
 
         {/* Input Form */}
         <div className="mb-12">
-          <MatchInput onAnalyze={handleAnalyze} isLoading={analysisState.isLoading} />
+          <MatchInput 
+            onAnalyze={handleAnalyze} 
+            isLoading={analysisState.isLoading} 
+            previousAnalysis={analysisState.data}
+          />
         </div>
 
         {/* Analysis Output */}

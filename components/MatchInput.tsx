@@ -5,9 +5,10 @@ import { MatchData, SportType } from '../types';
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
   isLoading: boolean;
+  previousAnalysis?: string | null;
 }
 
-const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
+const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousAnalysis }) => {
   const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
@@ -18,6 +19,41 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
     e.preventDefault();
     if (!homeTeam || !awayTeam) return;
     onAnalyze({ sport, homeTeam, awayTeam, date, context });
+  };
+
+  const extractContextFromAnalysis = () => {
+    if (!previousAnalysis) return;
+
+    let extractedText = "";
+
+    // 1. 한 줄 요약 추출
+    const summaryMatch = previousAnalysis.match(/한 줄 요약:\s*(.*?)(\n|$)/);
+    if (summaryMatch && summaryMatch[1]) {
+      extractedText += `[이전 분석 요약: ${summaryMatch[1].trim()}] `;
+    }
+
+    // 2. 리스크 추출
+    const riskMatch = previousAnalysis.match(/리스크:\s*(.*?)(\n|$)/);
+    if (riskMatch && riskMatch[1]) {
+      extractedText += `[주요 리스크: ${riskMatch[1].trim()}] `;
+    }
+
+    // 3. 부상/라인업 변수 추출 (간단하게 헤더 아래 내용 일부)
+    const injuryMatch = previousAnalysis.match(/핵심 변수:.*?\n([\s\S]*?)(?=\n###|$)/);
+    if (injuryMatch) {
+        // 불필요한 공백 제거하고 한줄로 압축
+        const cleanInjury = injuryMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').substring(0, 100);
+        extractedText += `[변수: ${cleanInjury}...]`;
+    }
+
+    if (extractedText) {
+      setContext((prev) => {
+        const prefix = prev ? prev + " / " : "";
+        return prefix + "재분석 요청: " + extractedText;
+      });
+    } else {
+      alert("추출할 핵심 정보가 분석 결과에 부족합니다.");
+    }
   };
 
   const getPlaceholder = (type: 'home' | 'away') => {
@@ -108,7 +144,22 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading }) => {
             />
           </div>
            <div>
-            <label className="block text-slate-400 text-sm font-semibold mb-2">경기 맥락 (선택)</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-slate-400 text-sm font-semibold">경기 맥락 (선택)</label>
+              {previousAnalysis && (
+                <button
+                  type="button"
+                  onClick={extractContextFromAnalysis}
+                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded flex items-center transition-colors shadow-sm"
+                  title="이전 분석 결과에서 리스크와 요약을 추출하여 입력합니다"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  맥락 자동 추출
+                </button>
+              )}
+            </div>
             <input
               type="text"
               value={context}
