@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import MatchInput from './components/MatchInput';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import { analyzeMatch } from './services/geminiService';
-import { MatchData, AnalysisState } from './types';
+import { MatchData, AnalysisState, TrainingSample } from './types';
 
 const App: React.FC = () => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
@@ -12,27 +12,20 @@ const App: React.FC = () => {
     error: null,
   });
 
-  // [NEW] 학습된 데이터(컨텍스트)를 메모리에 저장하는 상태
-  const [learnedSamples, setLearnedSamples] = useState<string[]>([]);
+  // [NEW] 학습된 데이터(컨텍스트)를 메모리에 저장하는 상태 (구조화된 데이터)
+  const [learnedSamples, setLearnedSamples] = useState<TrainingSample[]>([]);
 
   const apiKey = process.env.API_KEY || '';
 
   // 학습 데이터 저장 핸들러 (중복 제거 및 누적)
-  const handleLearn = (newSamples: string[]) => {
+  const handleLearn = (newSamples: TrainingSample[]) => {
     setLearnedSamples(prev => {
-      // 1. 기존 데이터(prev)와 새로운 데이터(newSamples)를 합침
-      const combined = [...prev, ...newSamples];
+      // 내용(content)이 같은 것은 중복으로 간주하고 제거 (간단한 로직)
+      const existingContents = new Set(prev.map(s => s.content));
+      const uniqueNewSamples = newSamples.filter(s => !existingContents.has(s.content));
       
-      // 2. Set 자료구조를 사용하여 내용이 완벽히 똑같은 중복 파일 제거
-      const uniqueSamples = Array.from(new Set(combined));
-      
-      return uniqueSamples;
+      return [...prev, ...uniqueNewSamples];
     });
-  };
-
-  // 학습 데이터 초기화 핸들러 (필요 시 MatchInput 등에서 호출 가능)
-  const handleClearLearning = () => {
-    setLearnedSamples([]);
   };
 
   const handleAnalyze = async (data: MatchData) => {
@@ -45,16 +38,19 @@ const App: React.FC = () => {
       return;
     }
 
-    // 스트리밍 시작 전 상태 초기화 (data를 빈 문자열로 시작하여 커서가 보이게 함)
     setAnalysisState({ isLoading: true, data: "", error: null });
 
     try {
-      // [NEW] 사용자가 입력한 데이터 + 미리 학습된 데이터(learnedSamples) 합치기
+      // [NEW] 스마트 필터링: 현재 분석하려는 종목(data.sport)과 일치하거나 'general'인 데이터만 추출
+      const relevantSamples = learnedSamples.filter(sample => 
+        sample.sport === 'general' || sample.sport === data.sport
+      ).map(sample => sample.content); // string[] 형태로 변환하여 전달
+
       const finalMatchData: MatchData = {
         ...data,
         trainingData: [
-          ...(learnedSamples || []),       // 미리 학습된 데이터
-          ...(data.trainingData || [])     // (혹시 있다면) 이번에 추가로 넘겨온 데이터
+          ...relevantSamples,            // 필터링된 학습 데이터
+          ...(data.trainingData || [])   // (혹시 추가로 넘어온 일회성 데이터)
         ]
       };
 
@@ -62,11 +58,10 @@ const App: React.FC = () => {
       const result = await analyzeMatch(finalMatchData, apiKey, (chunkText) => {
          setAnalysisState(prev => ({
            ...prev,
-           data: (prev.data || "") + chunkText, // 기존 텍스트에 청크 추가
+           data: (prev.data || "") + chunkText, 
          }));
       });
 
-      // 최종 완료 상태 업데이트 (그라운딩 메타데이터 포함)
       setAnalysisState(prev => ({
         isLoading: false,
         data: result.text || prev.data || "분석 결과가 없습니다.",
@@ -136,8 +131,8 @@ const App: React.FC = () => {
         <div className="mb-12">
           <MatchInput 
             onAnalyze={handleAnalyze} 
-            onLearn={handleLearn} // 학습 핸들러 전달
-            learnedCount={learnedSamples.length} // 현재 학습된 개수 전달
+            onLearn={handleLearn} 
+            learnedCount={learnedSamples.length} 
             isLoading={analysisState.isLoading} 
             previousAnalysis={analysisState.data}
           />
@@ -151,7 +146,7 @@ const App: React.FC = () => {
           />
         )}
         
-        {/* Empty State / Placeholder - 데이터도 없고 로딩중도 아닐 때만 표시 */}
+        {/* Empty State / Placeholder */}
         {!analysisState.data && !analysisState.isLoading && !analysisState.error && (
           <div className="text-center text-slate-600 mt-20">
             <svg className="w-16 h-16 mx-auto mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">

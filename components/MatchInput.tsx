@@ -1,16 +1,16 @@
 
 import React, { useState, useRef } from 'react';
-import { MatchData, SportType } from '../types';
+import { MatchData, SportType, TrainingSample } from '../types';
 
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
-  onLearn: (files: string[]) => void; // 학습 데이터 저장 핸들러
-  learnedCount: number; // 현재 학습된 파일 개수
+  onLearn: (samples: TrainingSample[]) => void; // 변경: 객체 배열 전달
+  learnedCount: number;
   isLoading: boolean;
   previousAnalysis?: string | null;
 }
 
-// 한글 팀명/국가명 -> 영문 공식 명칭 매핑 데이터 (생략 없이 유지)
+// 한글 팀명/국가명 -> 영문 공식 명칭 매핑 데이터
 const TEAM_MAPPINGS: Record<string, string> = {
   // [축구 - EPL]
   '토트넘': 'Tottenham', '스퍼스': 'Tottenham', '토트넘홋스퍼': 'Tottenham',
@@ -133,18 +133,38 @@ const DEFAULT_CONTEXT = `(초보자 모드)
 2. 경기장 날씨나 감독 이슈 같은 최신 뉴스가 있다면 꼭 검색해서 반영해줘.
 3. 정말 확실하지 않으면 "이번엔 쉬어가세요(NO BET)"라고 솔직하게 말해줘.`;
 
-const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCount, isLoading, previousAnalysis }) => {
-  // 모드: 'new' (새 분석) | 'synthesis' (분석 종합)
-  const [mode, setMode] = useState<'new' | 'synthesis'>('new');
+// 간단한 키워드 기반 종목 감지 함수
+const detectSport = (text: string): SportType | 'general' => {
+  const t = text.toLowerCase();
+  
+  // 야구 키워드
+  if (t.includes("이닝") || t.includes("투수") || t.includes("타자") || t.includes("방어율") || t.includes("홈런") || t.includes("선발") || t.includes("era")) return 'baseball';
+  
+  // 농구 키워드
+  if (t.includes("쿼터") || t.includes("리바운드") || t.includes("3점") || t.includes("자유투") || t.includes("어시스트") || t.includes("가드") || t.includes("포워드")) return 'basketball';
+  
+  // 배구 키워드
+  if (t.includes("세트") && (t.includes("서브") || t.includes("블로킹") || t.includes("리시브") || t.includes("공격 성공률"))) return 'volleyball';
+  
+  // 하키 키워드
+  if (t.includes("피리어드") || t.includes("퍽") || t.includes("파워플레이") || t.includes("골리")) return 'hockey';
+  
+  // 축구 키워드 (가장 일반적이므로 마지막에 체크하거나 특정 키워드 확인)
+  if (t.includes("전반") || t.includes("후반") || t.includes("골키퍼") || t.includes("수비수") || t.includes("미드필더") || t.includes("코너킥") || t.includes("오프사이드")) return 'football';
 
+  return 'general';
+};
+
+const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCount, isLoading, previousAnalysis }) => {
+  const [mode, setMode] = useState<'new' | 'synthesis'>('new');
   const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
   const [date, setDate] = useState('');
   const [context, setContext] = useState(DEFAULT_CONTEXT);
   
-  // 학습 관련 로컬 상태 (파일 선택)
-  const [selectedTrainingFiles, setSelectedTrainingFiles] = useState<string[]>([]);
+  // 학습 관련 로컬 상태
+  const [selectedTrainingFiles, setSelectedTrainingFiles] = useState<TrainingSample[]>([]);
   const [fileCount, setFileCount] = useState(0);
 
   // 파일 업로드 관련 상태 (종합 모드용)
@@ -153,7 +173,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
   const [fileContent1, setFileContent1] = useState<string>('');
   const [fileContent2, setFileContent2] = useState<string>('');
   
-  // 알림 메시지 상태
   const [conversionMsg, setConversionMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
 
@@ -164,17 +183,15 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
     if (mode === 'new') {
       if (!homeTeam || !awayTeam) return;
       
-      // 이미 learnedCount가 있으면 trainingData를 안 보내도 됨 (App.tsx에서 병합)
       onAnalyze({ 
         sport, 
         homeTeam, 
         awayTeam, 
         date, 
-        context: context + (learnedCount > 0 ? "\n\n[System] 메모리에 학습된 데이터를 적용하여 분석함." : ""),
-        trainingData: [] // 여기서는 빈 배열을 보내도 됨. 상위 컴포넌트가 알아서 처리.
+        context: context + (learnedCount > 0 ? `\n\n[System] 메모리에 저장된 ${learnedCount}개의 스타일을 참조하여 분석합니다.` : ""),
+        trainingData: [] 
       });
     } else {
-      // Synthesis Mode
       if (!fileContent1 || !fileContent2) {
         alert("두 개의 분석 파일(맥락 포함/미포함)을 모두 업로드해주세요.");
         return;
@@ -216,7 +233,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
     reader.readAsText(file);
   };
 
-  // 학습 데이터 파일 '선택' 핸들러 (바로 학습되는 것 아님)
   const handleTrainingFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -230,17 +246,25 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
     }
 
     let loadedCount = 0;
-    const contents: string[] = [];
+    const samples: TrainingSample[] = [];
 
     validFiles.forEach(file => {
         const reader = new FileReader();
         reader.onload = (event) => {
             const text = event.target?.result as string;
-            contents.push(text);
+            // 자동 종목 감지
+            const detectedSport = detectSport(text);
+            
+            samples.push({
+              id: `${file.name}-${Date.now()}-${Math.random()}`,
+              content: text,
+              sport: detectedSport
+            });
+            
             loadedCount++;
             
             if (loadedCount === validFiles.length) {
-                setSelectedTrainingFiles(contents);
+                setSelectedTrainingFiles(samples);
                 setFileCount(loadedCount);
             }
         };
@@ -248,19 +272,30 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
     });
   };
 
-  // 실제 학습 실행 버튼 핸들러
   const handleExecuteLearn = () => {
     if (selectedTrainingFiles.length === 0) {
         alert("먼저 학습할 파일들을 선택해주세요.");
         return;
     }
+    
+    // 감지된 종목 통계
+    const sportCounts = selectedTrainingFiles.reduce((acc, curr) => {
+        acc[curr.sport] = (acc[curr.sport] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    
+    const summary = Object.entries(sportCounts)
+        .map(([sp, count]) => `${sp}: ${count}개`)
+        .join(', ');
+
     onLearn(selectedTrainingFiles);
+    
     // UI 초기화
     setSelectedTrainingFiles([]);
     setFileCount(0);
     if (trainingInputRef.current) trainingInputRef.current.value = '';
     
-    alert("학습이 완료되었습니다! 이제 메모리에 저장된 스타일로 계속 분석할 수 있습니다.");
+    alert(`학습 완료!\n자동 분류 결과: ${summary}\n이제 분석 시 자동으로 해당 종목의 스타일을 적용합니다.`);
   };
 
   const handleTeamBlur = (type: 'home' | 'away') => {
@@ -283,14 +318,11 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
     const isKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(currentName);
     if (isKorean) {
         const matches = Object.keys(TEAM_MAPPINGS).filter(key => key.includes(normalizedInput));
-        
         if (matches.length > 0) {
             const uniqueSuggestions = Array.from(new Set(matches.map(k => TEAM_MAPPINGS[k]))).slice(0, 3);
-            const suggestionsStr = uniqueSuggestions.join(', ');
-            
-            setWarningMsg(`'${currentName}' 변환 실패. 혹시 다음 팀인가요? : ${suggestionsStr}`);
+            setWarningMsg(`변환 실패. 추천: ${uniqueSuggestions.join(', ')}`);
         } else {
-            setWarningMsg(`'${currentName}'에 대한 영문명을 찾을 수 없습니다. 공식 영문 명칭을 직접 입력해주세요.`);
+            setWarningMsg(`공식 영문 명칭을 찾을 수 없습니다.`);
         }
         setConversionMsg(null);
         setTimeout(() => setWarningMsg(null), 6000);
@@ -299,7 +331,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
 
   const extractContextFromAnalysis = () => {
     if (!previousAnalysis) return;
-
     let extractedText = "";
     const summaryMatch = previousAnalysis.match(/한 줄 요약:\s*(.*?)(\n|$)/);
     if (summaryMatch && summaryMatch[1]) extractedText += `[이전 요약: ${summaryMatch[1].trim()}] `;
@@ -326,7 +357,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 relative">
       
-      {/* 탭 네비게이션 */}
       <div className="flex border-b border-slate-700 mb-6">
         <button
           type="button"
@@ -363,7 +393,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
         {mode === 'new' ? '새로운 분석 요청' : '두 분석 결과 비교 및 종합'}
       </h2>
 
-      {/* Notifications */}
       {conversionMsg && (
         <div className="absolute top-4 right-6 bg-emerald-600/90 text-white text-xs px-3 py-1.5 rounded-full shadow-lg animate-fade-in-up border border-emerald-400/50 z-10">
           ✨ {conversionMsg}
@@ -377,7 +406,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
 
       <form onSubmit={handleSubmit} className="space-y-4">
         
-        {/* Sport Selector */}
         <div>
           <label className="block text-slate-400 text-sm font-semibold mb-2">분석 종목 (Sport)</label>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
@@ -404,20 +432,18 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
           </div>
         </div>
 
-        {/* --- MODE: NEW ANALYSIS --- */}
         {mode === 'new' && (
           <>
             <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 mb-2">
               <p className="text-xs text-slate-400">
-                * <span className="text-emerald-400 font-bold">Tip:</span> 팀명은 한글로 입력해도 자동으로 변환됩니다.
+                * <span className="text-emerald-400 font-bold">Tip:</span> AI가 학습 파일을 자동으로 분석해 종목별로 분류합니다.
               </p>
             </div>
 
-            {/* [NEW] 학습 데이터 관리 섹션 */}
             <div className={`p-4 rounded-lg border mb-4 transition-colors ${learnedCount > 0 ? "bg-emerald-900/20 border-emerald-500/50" : "bg-slate-700/30 border-slate-600"}`}>
                 <div className="flex justify-between items-center mb-2">
                     <label className="text-emerald-400 text-sm font-bold flex items-center">
-                        🧠 내 분석 스타일 학습시키기 (C:\toto-power)
+                        🧠 내 분석 스타일 학습시키기 (파일 자동 분류)
                     </label>
                     {learnedCount > 0 && (
                         <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-bold">
@@ -441,7 +467,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
                         onClick={() => trainingInputRef.current?.click()}
                         className="flex-1 py-2 px-4 rounded border text-sm transition-colors bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 flex justify-center items-center"
                     >
-                         {fileCount > 0 ? `${fileCount}개 파일 선택됨` : "📂 학습용 파일 선택"}
+                         {fileCount > 0 ? `${fileCount}개 파일 분석됨` : "📂 학습용 파일 선택 (종목 혼합 가능)"}
                     </button>
                     
                     <button 
@@ -454,13 +480,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
                              : "bg-slate-700 border-slate-600 text-slate-500 cursor-not-allowed"
                         }`}
                     >
-                        🚀 지금 학습하기
+                        🚀 지금 분류 및 학습하기
                     </button>
                 </div>
-                
-                <p className="text-xs text-slate-500 mt-2">
-                   * 순서: 1. 파일 선택 → 2. '지금 학습하기' 클릭 → 3. 아래에서 경기 분석 무한 반복
-                </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -512,7 +534,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCoun
           </>
         )}
 
-        {/* --- MODE: SYNTHESIS ANALYSIS --- */}
         {mode === 'synthesis' && (
           <div className="space-y-6 bg-slate-900/50 p-6 rounded-lg border border-slate-700/50">
              <div className="text-sm text-slate-300 mb-4">

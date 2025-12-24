@@ -1,6 +1,12 @@
 
 export type SportType = 'football' | 'basketball' | 'baseball' | 'volleyball' | 'hockey';
 
+export interface TrainingSample {
+  id: string; // 중복 제거 및 관리를 위한 ID (해시값 또는 내용 기반)
+  content: string;
+  sport: SportType | 'general'; // 자동 감지된 종목
+}
+
 export interface MatchData {
   sport: SportType;
   homeTeam: string;
@@ -12,7 +18,7 @@ export interface MatchData {
     contextAnalysis: string; // 맥락이 포함된 분석 파일 내용
     noContextAnalysis: string; // 맥락이 없는(데이터 위주) 분석 파일 내용
   };
-  // 인-컨텍스트 러닝을 위한 과거 데이터 (개별 파일들의 배열)
+  // 인-컨텍스트 러닝을 위한 과거 데이터 (단순 문자열 배열로 전달됨, App.tsx에서 필터링 후 주입)
   trainingData?: string[];
 }
 
