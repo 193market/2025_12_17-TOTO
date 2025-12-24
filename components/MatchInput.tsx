@@ -1,14 +1,16 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { MatchData, SportType } from '../types';
 
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
+  onLearn: (files: string[]) => void; // 학습 데이터 저장 핸들러
+  learnedCount: number; // 현재 학습된 파일 개수
   isLoading: boolean;
   previousAnalysis?: string | null;
 }
 
-// 한글 팀명/국가명 -> 영문 공식 명칭 매핑 데이터
+// 한글 팀명/국가명 -> 영문 공식 명칭 매핑 데이터 (생략 없이 유지)
 const TEAM_MAPPINGS: Record<string, string> = {
   // [축구 - EPL]
   '토트넘': 'Tottenham', '스퍼스': 'Tottenham', '토트넘홋스퍼': 'Tottenham',
@@ -125,40 +127,148 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '말레이시아': 'Malaysia'
 };
 
-const DEFAULT_CONTEXT = `(비전문가 모드) 최종 픽 섹션을 작성할 때 다음 3가지를 추가해주세요:
-1. 추천 강도를 '별 5개(⭐⭐⭐⭐⭐)' 만점으로 표시해 주세요.
-2. '핸디캡', '언더오버' 같은 용어 대신 "홈팀이 2점 차 이상으로 이길 듯", "양 팀 합쳐 3골 이상 터질 듯" 처럼 풀어서 설명해 주세요.
-3. 확신이 70% 미만이면 과감하게 'NO BET(베팅 금지)'이라고 적어주세요.
+const DEFAULT_CONTEXT = `(초보자 모드) 
+다음 내용을 꼭 포함해줘:
+1. 어려운 용어(핸디캡, 언오버 등) 쓰지 말고 "몇 점 차 승리" 처럼 쉽게 설명해줘.
+2. 경기장 날씨나 감독 이슈 같은 최신 뉴스가 있다면 꼭 검색해서 반영해줘.
+3. 정말 확실하지 않으면 "이번엔 쉬어가세요(NO BET)"라고 솔직하게 말해줘.`;
 
-[추가 검색 요청]
-경기 시간(현지 시각) 경기장 날씨를 검색해서 비가 오는지 확인해 주고, 최근 3일간 홈팀 감독 경질이나 불화설 같은 뉴스가 있는지 검색해서 분석에 반영해 줘. 배당률이 어제보다 급격히 떨어졌는지도 검색해 줘.`;
+const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, learnedCount, isLoading, previousAnalysis }) => {
+  // 모드: 'new' (새 분석) | 'synthesis' (분석 종합)
+  const [mode, setMode] = useState<'new' | 'synthesis'>('new');
 
-const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousAnalysis }) => {
   const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
   const [date, setDate] = useState('');
   const [context, setContext] = useState(DEFAULT_CONTEXT);
   
+  // 학습 관련 로컬 상태 (파일 선택)
+  const [selectedTrainingFiles, setSelectedTrainingFiles] = useState<string[]>([]);
+  const [fileCount, setFileCount] = useState(0);
+
+  // 파일 업로드 관련 상태 (종합 모드용)
+  const [fileWithContext, setFileWithContext] = useState<File | null>(null);
+  const [fileNoContext, setFileNoContext] = useState<File | null>(null);
+  const [fileContent1, setFileContent1] = useState<string>('');
+  const [fileContent2, setFileContent2] = useState<string>('');
+  
   // 알림 메시지 상태
   const [conversionMsg, setConversionMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
 
+  const trainingInputRef = useRef<HTMLInputElement>(null);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!homeTeam || !awayTeam) return;
-    onAnalyze({ sport, homeTeam, awayTeam, date, context });
+    if (mode === 'new') {
+      if (!homeTeam || !awayTeam) return;
+      
+      // 이미 learnedCount가 있으면 trainingData를 안 보내도 됨 (App.tsx에서 병합)
+      onAnalyze({ 
+        sport, 
+        homeTeam, 
+        awayTeam, 
+        date, 
+        context: context + (learnedCount > 0 ? "\n\n[System] 메모리에 학습된 데이터를 적용하여 분석함." : ""),
+        trainingData: [] // 여기서는 빈 배열을 보내도 됨. 상위 컴포넌트가 알아서 처리.
+      });
+    } else {
+      // Synthesis Mode
+      if (!fileContent1 || !fileContent2) {
+        alert("두 개의 분석 파일(맥락 포함/미포함)을 모두 업로드해주세요.");
+        return;
+      }
+      onAnalyze({ 
+        sport, 
+        homeTeam: "Analysis", 
+        awayTeam: "Comparison", 
+        date, 
+        context: "Synthesis Mode",
+        uploadedContent: {
+          contextAnalysis: fileContent1,
+          noContextAnalysis: fileContent2
+        }
+      });
+    }
   };
 
-  // 팀 이름 자동 변환 및 추천 핸들러
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'context' | 'no-context') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'text/plain') {
+      alert("TXT 파일만 업로드 가능합니다.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (type === 'context') {
+        setFileWithContext(file);
+        setFileContent1(text);
+      } else {
+        setFileNoContext(file);
+        setFileContent2(text);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // 학습 데이터 파일 '선택' 핸들러 (바로 학습되는 것 아님)
+  const handleTrainingFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const fileList = Array.from(files) as File[];
+    const validFiles = fileList.filter(f => f.type === 'text/plain' || f.name.endsWith('.txt'));
+    
+    if (validFiles.length === 0) {
+        alert("TXT 파일이 없습니다.");
+        return;
+    }
+
+    let loadedCount = 0;
+    const contents: string[] = [];
+
+    validFiles.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result as string;
+            contents.push(text);
+            loadedCount++;
+            
+            if (loadedCount === validFiles.length) {
+                setSelectedTrainingFiles(contents);
+                setFileCount(loadedCount);
+            }
+        };
+        reader.readAsText(file);
+    });
+  };
+
+  // 실제 학습 실행 버튼 핸들러
+  const handleExecuteLearn = () => {
+    if (selectedTrainingFiles.length === 0) {
+        alert("먼저 학습할 파일들을 선택해주세요.");
+        return;
+    }
+    onLearn(selectedTrainingFiles);
+    // UI 초기화
+    setSelectedTrainingFiles([]);
+    setFileCount(0);
+    if (trainingInputRef.current) trainingInputRef.current.value = '';
+    
+    alert("학습이 완료되었습니다! 이제 메모리에 저장된 스타일로 계속 분석할 수 있습니다.");
+  };
+
   const handleTeamBlur = (type: 'home' | 'away') => {
     const currentName = type === 'home' ? homeTeam : awayTeam;
     if (!currentName) return;
 
-    // 공백 제거 및 소문자화
     const normalizedInput = currentName.replace(/\s+/g, '').toLowerCase();
     
-    // 1. 정확한 매핑 확인
     const converted = TEAM_MAPPINGS[normalizedInput];
     if (converted && converted.toLowerCase() !== currentName.toLowerCase()) {
       if (type === 'home') setHomeTeam(converted);
@@ -170,14 +280,11 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
       return;
     }
 
-    // 2. 한글 입력 시 유사 검색 또는 경고
     const isKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(currentName);
     if (isKorean) {
-        // 포함된 키워드 검색 (Partial Match)
         const matches = Object.keys(TEAM_MAPPINGS).filter(key => key.includes(normalizedInput));
         
         if (matches.length > 0) {
-            // 중복된 영문 팀명 제거 후 상위 3개만 추천
             const uniqueSuggestions = Array.from(new Set(matches.map(k => TEAM_MAPPINGS[k]))).slice(0, 3);
             const suggestionsStr = uniqueSuggestions.join(', ');
             
@@ -186,7 +293,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
             setWarningMsg(`'${currentName}'에 대한 영문명을 찾을 수 없습니다. 공식 영문 명칭을 직접 입력해주세요.`);
         }
         setConversionMsg(null);
-        setTimeout(() => setWarningMsg(null), 6000); // 경고는 조금 더 오래 표시
+        setTimeout(() => setWarningMsg(null), 6000);
     }
   };
 
@@ -194,30 +301,16 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
     if (!previousAnalysis) return;
 
     let extractedText = "";
-
     const summaryMatch = previousAnalysis.match(/한 줄 요약:\s*(.*?)(\n|$)/);
-    if (summaryMatch && summaryMatch[1]) {
-      extractedText += `[이전 분석 요약: ${summaryMatch[1].trim()}] `;
-    }
-
-    const riskMatch = previousAnalysis.match(/리스크:\s*(.*?)(\n|$)/);
-    if (riskMatch && riskMatch[1]) {
-      extractedText += `[주요 리스크: ${riskMatch[1].trim()}] `;
-    }
-
-    const injuryMatch = previousAnalysis.match(/핵심 변수:.*?\n([\s\S]*?)(?=\n###|$)/);
-    if (injuryMatch) {
-        const cleanInjury = injuryMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').substring(0, 100);
-        extractedText += `[변수: ${cleanInjury}...]`;
-    }
-
+    if (summaryMatch && summaryMatch[1]) extractedText += `[이전 요약: ${summaryMatch[1].trim()}] `;
+    
     if (extractedText) {
       setContext((prev) => {
         const prefix = prev ? prev + "\n\n" : "";
         return prefix + "재분석 요청: " + extractedText;
       });
     } else {
-      alert("추출할 핵심 정보가 분석 결과에 부족합니다.");
+      alert("추출할 핵심 정보가 부족합니다.");
     }
   };
 
@@ -232,21 +325,50 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 relative">
+      
+      {/* 탭 네비게이션 */}
+      <div className="flex border-b border-slate-700 mb-6">
+        <button
+          type="button"
+          onClick={() => setMode('new')}
+          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
+            mode === 'new' 
+              ? 'text-emerald-400 border-b-2 border-emerald-400' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          ⚽ 새로운 경기 분석
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('synthesis')}
+          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
+            mode === 'synthesis' 
+              ? 'text-emerald-400 border-b-2 border-emerald-400' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          📂 분석 결과 종합
+        </button>
+      </div>
+
       <h2 className="text-xl font-bold text-emerald-400 mb-4 flex items-center">
         <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          {mode === 'new' ? (
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          ) : (
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+          )}
         </svg>
-        새로운 분석 요청
+        {mode === 'new' ? '새로운 분석 요청' : '두 분석 결과 비교 및 종합'}
       </h2>
 
-      {/* Success Notification */}
+      {/* Notifications */}
       {conversionMsg && (
         <div className="absolute top-4 right-6 bg-emerald-600/90 text-white text-xs px-3 py-1.5 rounded-full shadow-lg animate-fade-in-up border border-emerald-400/50 z-10">
           ✨ {conversionMsg}
         </div>
       )}
-
-      {/* Warning/Suggestion Notification */}
       {warningMsg && (
         <div className="absolute top-4 right-6 bg-amber-600/95 text-white text-xs px-3 py-1.5 rounded-full shadow-lg animate-pulse border border-amber-400/50 z-10">
           💡 {warningMsg}
@@ -282,80 +404,168 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
           </div>
         </div>
 
-        <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 mb-2">
-          <p className="text-xs text-slate-400">
-            * <span className="text-emerald-400 font-bold">Tip:</span> <span className="text-white font-bold">한글 팀명/국가명</span>을 입력하면 자동으로 <span className="text-emerald-300">영문 공식 명칭</span>으로 변환됩니다. (예: 대한민국 → South Korea)
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-slate-400 text-sm font-semibold mb-2">홈 팀 (Home Team)</label>
-            <input
-              type="text"
-              value={homeTeam}
-              onChange={(e) => setHomeTeam(e.target.value)}
-              onBlur={() => handleTeamBlur('home')}
-              placeholder={getPlaceholder('home')}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-slate-400 text-sm font-semibold mb-2">원정 팀 (Away Team)</label>
-            <input
-              type="text"
-              value={awayTeam}
-              onChange={(e) => setAwayTeam(e.target.value)}
-              onBlur={() => handleTeamBlur('away')}
-              placeholder={getPlaceholder('away')}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-              required
-            />
-          </div>
-        </div>
-
-        {/* Date Field */}
-        <div>
-            <label className="block text-slate-400 text-sm font-semibold mb-2">경기 날짜 (선택)</label>
-             <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-            />
-        </div>
-           
-        {/* Context Field (TextArea) */}
-        <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="block text-slate-400 text-sm font-semibold">경기 맥락 (선택 & 가이드)</label>
-              {previousAnalysis && (
-                <button
-                  type="button"
-                  onClick={extractContextFromAnalysis}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded flex items-center transition-colors shadow-sm"
-                  title="이전 분석 결과에서 리스크와 요약을 추출하여 입력합니다"
-                >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  맥락 자동 추출
-                </button>
-              )}
+        {/* --- MODE: NEW ANALYSIS --- */}
+        {mode === 'new' && (
+          <>
+            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 mb-2">
+              <p className="text-xs text-slate-400">
+                * <span className="text-emerald-400 font-bold">Tip:</span> 팀명은 한글로 입력해도 자동으로 변환됩니다.
+              </p>
             </div>
-            <textarea
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder="예: 플레이오프 1차전, 선발 투수 XX"
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors h-32 text-sm leading-relaxed scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800"
-            />
-        </div>
+
+            {/* [NEW] 학습 데이터 관리 섹션 */}
+            <div className={`p-4 rounded-lg border mb-4 transition-colors ${learnedCount > 0 ? "bg-emerald-900/20 border-emerald-500/50" : "bg-slate-700/30 border-slate-600"}`}>
+                <div className="flex justify-between items-center mb-2">
+                    <label className="text-emerald-400 text-sm font-bold flex items-center">
+                        🧠 내 분석 스타일 학습시키기 (C:\toto-power)
+                    </label>
+                    {learnedCount > 0 && (
+                        <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-bold">
+                            {learnedCount}개 스타일 메모리 저장됨
+                        </span>
+                    )}
+                </div>
+
+                <input 
+                    type="file" 
+                    multiple 
+                    ref={trainingInputRef}
+                    onChange={handleTrainingFileSelect}
+                    className="hidden"
+                    accept=".txt"
+                />
+                
+                <div className="flex space-x-2">
+                    <button 
+                        type="button"
+                        onClick={() => trainingInputRef.current?.click()}
+                        className="flex-1 py-2 px-4 rounded border text-sm transition-colors bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 flex justify-center items-center"
+                    >
+                         {fileCount > 0 ? `${fileCount}개 파일 선택됨` : "📂 학습용 파일 선택"}
+                    </button>
+                    
+                    <button 
+                        type="button"
+                        onClick={handleExecuteLearn}
+                        disabled={fileCount === 0}
+                        className={`flex-1 py-2 px-4 rounded border text-sm transition-colors font-bold flex justify-center items-center ${
+                             fileCount > 0 
+                             ? "bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-500 shadow-lg" 
+                             : "bg-slate-700 border-slate-600 text-slate-500 cursor-not-allowed"
+                        }`}
+                    >
+                        🚀 지금 학습하기
+                    </button>
+                </div>
+                
+                <p className="text-xs text-slate-500 mt-2">
+                   * 순서: 1. 파일 선택 → 2. '지금 학습하기' 클릭 → 3. 아래에서 경기 분석 무한 반복
+                </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-400 text-sm font-semibold mb-2">홈 팀</label>
+                <input
+                  type="text"
+                  value={homeTeam}
+                  onChange={(e) => setHomeTeam(e.target.value)}
+                  onBlur={() => handleTeamBlur('home')}
+                  placeholder={getPlaceholder('home')}
+                  className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 text-sm font-semibold mb-2">원정 팀</label>
+                <input
+                  type="text"
+                  value={awayTeam}
+                  onChange={(e) => setAwayTeam(e.target.value)}
+                  onBlur={() => handleTeamBlur('away')}
+                  placeholder={getPlaceholder('away')}
+                  className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
+                  required
+                />
+              </div>
+            </div>
+              
+            <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-slate-400 text-sm font-semibold">경기 맥락 (선택 & 가이드)</label>
+                  {previousAnalysis && (
+                    <button
+                      type="button"
+                      onClick={extractContextFromAnalysis}
+                      className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded flex items-center transition-colors shadow-sm"
+                    >
+                      맥락 자동 추출
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors h-32 text-sm leading-relaxed scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800"
+                />
+            </div>
+          </>
+        )}
+
+        {/* --- MODE: SYNTHESIS ANALYSIS --- */}
+        {mode === 'synthesis' && (
+          <div className="space-y-6 bg-slate-900/50 p-6 rounded-lg border border-slate-700/50">
+             <div className="text-sm text-slate-300 mb-4">
+                <strong>[맥락]</strong> 파일과 <strong>[데이터]</strong> 파일을 각각 업로드하세요. <br/>
+                AI가 두 관점을 합쳐서 <strong>[최종분석]</strong>을 도출합니다.
+             </div>
+
+             <div className="grid grid-cols-1 gap-6">
+                <div className="relative">
+                  <label className="block text-emerald-400 text-sm font-bold mb-2">📂 1. 맥락/뉴스 포함 분석</label>
+                  <div className="flex items-center">
+                    <input
+                      type="file"
+                      accept=".txt"
+                      onChange={(e) => handleFileUpload(e, 'context')}
+                      className="block w-full text-sm text-slate-400
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-emerald-600 file:text-white
+                        hover:file:bg-emerald-500
+                        cursor-pointer bg-slate-900 rounded-lg border border-slate-600"
+                    />
+                  </div>
+                  {fileContent1 && <p className="mt-1 text-xs text-green-400">✓ 파일 로드 완료 ({fileContent1.length}자)</p>}
+                </div>
+
+                <div className="relative">
+                  <label className="block text-blue-400 text-sm font-bold mb-2">📂 2. 맥락 미포함 (데이터 중심)</label>
+                  <div className="flex items-center">
+                    <input
+                      type="file"
+                      accept=".txt"
+                      onChange={(e) => handleFileUpload(e, 'no-context')}
+                      className="block w-full text-sm text-slate-400
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-600 file:text-white
+                        hover:file:bg-blue-500
+                        cursor-pointer bg-slate-900 rounded-lg border border-slate-600"
+                    />
+                  </div>
+                  {fileContent2 && <p className="mt-1 text-xs text-green-400">✓ 파일 로드 완료 ({fileContent2.length}자)</p>}
+                </div>
+             </div>
+          </div>
+        )}
 
         <button
           type="submit"
           disabled={isLoading}
-          className={`w-full font-bold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-[1.01] ${
+          className={`w-full font-bold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-[1.01] mt-6 ${
             isLoading
               ? 'bg-slate-600 cursor-not-allowed text-slate-300'
               : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -367,10 +577,10 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, isLoading, previousA
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              데이터 수집 및 분석 중...
+              {learnedCount > 0 ? '🧠 학습된 스타일로 분석 시작' : '분석 시작'}
             </span>
           ) : (
-            '분석 시작'
+            mode === 'new' ? (learnedCount > 0 ? '🧠 학습된 스타일로 분석 시작' : '분석 시작') : '최종 종합 분석 실행'
           )}
         </button>
       </form>

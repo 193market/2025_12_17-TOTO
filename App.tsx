@@ -12,7 +12,28 @@ const App: React.FC = () => {
     error: null,
   });
 
+  // [NEW] 학습된 데이터(컨텍스트)를 메모리에 저장하는 상태
+  const [learnedSamples, setLearnedSamples] = useState<string[]>([]);
+
   const apiKey = process.env.API_KEY || '';
+
+  // 학습 데이터 저장 핸들러 (중복 제거 및 누적)
+  const handleLearn = (newSamples: string[]) => {
+    setLearnedSamples(prev => {
+      // 1. 기존 데이터(prev)와 새로운 데이터(newSamples)를 합침
+      const combined = [...prev, ...newSamples];
+      
+      // 2. Set 자료구조를 사용하여 내용이 완벽히 똑같은 중복 파일 제거
+      const uniqueSamples = Array.from(new Set(combined));
+      
+      return uniqueSamples;
+    });
+  };
+
+  // 학습 데이터 초기화 핸들러 (필요 시 MatchInput 등에서 호출 가능)
+  const handleClearLearning = () => {
+    setLearnedSamples([]);
+  };
 
   const handleAnalyze = async (data: MatchData) => {
     if (!apiKey) {
@@ -24,16 +45,35 @@ const App: React.FC = () => {
       return;
     }
 
-    setAnalysisState({ isLoading: true, data: null, error: null });
+    // 스트리밍 시작 전 상태 초기화 (data를 빈 문자열로 시작하여 커서가 보이게 함)
+    setAnalysisState({ isLoading: true, data: "", error: null });
 
     try {
-      const result = await analyzeMatch(data, apiKey);
-      setAnalysisState({
+      // [NEW] 사용자가 입력한 데이터 + 미리 학습된 데이터(learnedSamples) 합치기
+      const finalMatchData: MatchData = {
+        ...data,
+        trainingData: [
+          ...(learnedSamples || []),       // 미리 학습된 데이터
+          ...(data.trainingData || [])     // (혹시 있다면) 이번에 추가로 넘겨온 데이터
+        ]
+      };
+
+      // analyzeMatch에 스트리밍 콜백 전달
+      const result = await analyzeMatch(finalMatchData, apiKey, (chunkText) => {
+         setAnalysisState(prev => ({
+           ...prev,
+           data: (prev.data || "") + chunkText, // 기존 텍스트에 청크 추가
+         }));
+      });
+
+      // 최종 완료 상태 업데이트 (그라운딩 메타데이터 포함)
+      setAnalysisState(prev => ({
         isLoading: false,
-        data: result.text || "분석 결과가 없습니다.",
+        data: result.text || prev.data || "분석 결과가 없습니다.",
         groundingMetadata: result.groundingMetadata,
         error: null,
-      });
+      }));
+
     } catch (err: any) {
       setAnalysisState({
         isLoading: false,
@@ -96,20 +136,22 @@ const App: React.FC = () => {
         <div className="mb-12">
           <MatchInput 
             onAnalyze={handleAnalyze} 
+            onLearn={handleLearn} // 학습 핸들러 전달
+            learnedCount={learnedSamples.length} // 현재 학습된 개수 전달
             isLoading={analysisState.isLoading} 
             previousAnalysis={analysisState.data}
           />
         </div>
 
         {/* Analysis Output */}
-        {analysisState.data && (
+        {(analysisState.data || analysisState.isLoading) && (
           <AnalysisDisplay 
             content={analysisState.data} 
             groundingMetadata={analysisState.groundingMetadata}
           />
         )}
         
-        {/* Empty State / Placeholder */}
+        {/* Empty State / Placeholder - 데이터도 없고 로딩중도 아닐 때만 표시 */}
         {!analysisState.data && !analysisState.isLoading && !analysisState.error && (
           <div className="text-center text-slate-600 mt-20">
             <svg className="w-16 h-16 mx-auto mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
