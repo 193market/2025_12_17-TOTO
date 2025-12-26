@@ -1,7 +1,8 @@
 
 import { SportType } from "../types";
 
-const API_KEY = 'cfe7a64a3a829e43ece1bc2746b48a8d';
+// [SECURITY] API Key 보안 강화: 환경 변수만 사용
+const API_KEY = process.env.REACT_APP_SPORTS_API_KEY;
 
 // 종목별 API 설정
 const SPORT_CONFIG: Record<SportType, { host: string; matchEndpoint: string }> = {
@@ -13,6 +14,10 @@ const SPORT_CONFIG: Record<SportType, { host: string; matchEndpoint: string }> =
 };
 
 async function fetchFromApi(sport: SportType, endpoint: string, params: Record<string, string>) {
+  if (!API_KEY) {
+    throw new Error("REACT_APP_SPORTS_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.");
+  }
+
   const config = SPORT_CONFIG[sport];
   const url = new URL(`https://${config.host}${endpoint}`);
   
@@ -26,87 +31,117 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
   try {
     const response = await fetch(url.toString(), { headers });
     if (!response.ok) {
-      if (response.status === 403) {
-        // 403 오류는 무시하고 null 반환 (권한 없음)
-        console.warn(`[${sport}] API 권한 제한: ${endpoint}`);
-        return null;
-      }
+      if (response.status === 403) throw new Error(`API 권한 제한 (403): ${endpoint}`);
+      if (response.status === 429) throw new Error(`API 요청 한도 초과 (429)`);
       throw new Error(`API 오류: ${response.statusText}`);
     }
     const json = await response.json();
+    
+    if (json.errors && (Array.isArray(json.errors) ? json.errors.length > 0 : Object.keys(json.errors).length > 0)) {
+        const errorMsg = typeof json.errors === 'object' ? JSON.stringify(json.errors) : json.errors;
+        // API 오류가 있어도 전체 로직을 죽이지 않고 null 처리를 위해 로그만 남김 (선택적)
+        console.warn(`API-Sports 내부 경고: ${errorMsg}`);
+    }
+
     return json.response;
-  } catch (error) {
-    console.warn(`[${sport}] ${endpoint} 데이터 수집 실패 (Non-blocking):`, error);
-    return null;
+  } catch (error: any) {
+    throw new Error(`[${sport}] 데이터 수집 실패: ${error.message}`);
   }
 }
 
 export async function getTeamId(sport: SportType, teamName: string): Promise<number | null> {
-  const data = await fetchFromApi(sport, '/teams', { search: teamName });
-  if (data && data.length > 0) {
-    return data[0].team?.id || data[0].id;
+  try {
+    const data = await fetchFromApi(sport, '/teams', { search: teamName });
+    if (data && data.length > 0) {
+      return data[0].team?.id || data[0].id;
+    }
+    return null;
+  } catch (e) {
+    return null;
   }
-  return null;
 }
 
-// 최근 경기(폼) 가져오기
 export async function getTeamForm(sport: SportType, teamId: number) {
   const config = SPORT_CONFIG[sport];
-  return await fetchFromApi(sport, `/${config.matchEndpoint}`, { 
-    team: teamId.toString(), 
-    last: '15', // 데이터 최적화를 위해 30 -> 15경기로 조정 (AI 토큰 효율성)
-    status: 'FT' 
-  });
+  try {
+    return await fetchFromApi(sport, `/${config.matchEndpoint}`, { 
+      team: teamId.toString(), 
+      last: '5', 
+      status: 'FT' 
+    });
+  } catch (e) {
+    return null;
+  }
 }
 
-// 상대 전적 가져오기
 export async function getHeadToHead(sport: SportType, teamIdA: number, teamIdB: number) {
   const config = SPORT_CONFIG[sport];
-  return await fetchFromApi(sport, `/${config.matchEndpoint}/headtohead`, { 
-    h2h: `${teamIdA}-${teamIdB}`,
-    last: '10' // 20 -> 10으로 조정
-  });
+  try {
+    return await fetchFromApi(sport, `/${config.matchEndpoint}/headtohead`, { 
+      h2h: `${teamIdA}-${teamIdB}`,
+      last: '5' 
+    });
+  } catch (e) {
+    return null;
+  }
 }
 
-// 리그 순위 정보 가져오기
 export async function getStandings(sport: SportType, leagueId: number, season: string) {
-  return await fetchFromApi(sport, '/standings', {
-    league: leagueId.toString(),
-    season: season
-  });
+  try {
+    return await fetchFromApi(sport, '/standings', {
+      league: leagueId.toString(),
+      season: season
+    });
+  } catch (e) {
+    return null;
+  }
 }
 
-// 팀의 해당 시즌 선수 스탯 가져오기
-export async function getTeamPlayers(sport: SportType, teamId: number, season: string) {
-  return await fetchFromApi(sport, '/players', {
-    team: teamId.toString(),
-    season: season
-  });
-}
-
-// 다음 경기의 라인업 가져오기
 export async function getFixtureLineups(sport: SportType, fixtureId: number) {
   if (sport === 'football') {
-     return await fetchFromApi(sport, '/fixtures/lineups', { fixture: fixtureId.toString() });
+     try {
+       return await fetchFromApi(sport, '/fixtures/lineups', { fixture: fixtureId.toString() });
+     } catch(e) { return null; }
   }
   return null;
 }
 
-// [NEW] 경기 배당률 가져오기 (시장 심리 파악용)
-export async function getOdds(sport: SportType, fixtureId: number) {
-  // 축구만 우선 적용 (API 호출량 관리)
+// [NEW] 경기 세부 스탯 (xG 포함) 가져오기
+export async function getFixtureStatistics(sport: SportType, fixtureId: number) {
   if (sport === 'football') {
-    const data = await fetchFromApi(sport, '/odds', { fixture: fixtureId.toString() });
-    // 책방(Bookmaker) 중 첫 번째 데이터만 간략히 가져옴
-    return data?.[0]?.bookmakers?.[0]?.bets?.[0]?.values || null; 
+    try {
+      // API-Sports /fixtures/statistics 엔드포인트 호출
+      const data = await fetchFromApi(sport, '/fixtures/statistics', { fixture: fixtureId.toString() });
+      return data; // Array of statistics per team
+    } catch(e) { return null; }
   }
   return null;
 }
 
-// [NEW] 부상자 명단 가져오기
+// [LOGIC UPDATE] 배당률(Odds) 가져오기 로직 강화
+export async function getOdds(sport: SportType, fixtureId: number) {
+  if (sport === 'football') {
+    try {
+      const data = await fetchFromApi(sport, '/odds', { fixture: fixtureId.toString() });
+      if (data && data.length > 0) {
+        const bookmakers = data[0].bookmakers;
+        if (bookmakers && bookmakers.length > 0) {
+            // Match Winner (ID: 1) 찾기
+            const matchWinnerBet = bookmakers[0].bets.find((bet: any) => bet.id === 1);
+            return matchWinnerBet ? matchWinnerBet.values : bookmakers[0].bets[0].values;
+        }
+      }
+      return null;
+    } catch(e) { return null; }
+  }
+  return null;
+}
+
 export async function getInjuries(sport: SportType, fixtureId: number) {
   if (sport === 'football') {
-    return await fetchFromApi(sport, '/injuries', { fixture: fixtureId.toString() });
+    try {
+      return await fetchFromApi(sport, '/injuries', { fixture: fixtureId.toString() });
+    } catch(e) { return null; }
   }
   return null;
 }
@@ -124,14 +159,34 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
     throw new Error(`팀 정보를 찾을 수 없습니다. (${sport}) 영어 팀 이름을 확인해주세요.`);
   }
 
-  // 2. 최근 경기력(폼) 및 상대 전적 조회
+  // 2. 기본 전적 데이터 조회 (최근 5경기)
   const [homeForm, awayForm, h2h] = await Promise.all([
     getTeamForm(sport, homeId),
     getTeamForm(sport, awayId),
     getHeadToHead(sport, homeId, awayId)
   ]);
 
-  // 3. 다음 예정된 경기 조회 (라인업, 배당률, 부상자 확보용)
+  // 3. [NEW] 최근 경기의 xG(기대 득점) 데이터 확보
+  // 최근 경기(Form의 0번째 인덱스)의 ID를 가져와서 상세 스탯을 조회합니다.
+  let homeLastMatchStats = null;
+  let awayLastMatchStats = null;
+
+  if (sport === 'football') {
+    try {
+        if (homeForm && homeForm.length > 0) {
+            const lastMatchId = homeForm[0].fixture.id;
+            homeLastMatchStats = await getFixtureStatistics(sport, lastMatchId);
+        }
+        if (awayForm && awayForm.length > 0) {
+            const lastMatchId = awayForm[0].fixture.id;
+            awayLastMatchStats = await getFixtureStatistics(sport, lastMatchId);
+        }
+    } catch (e) {
+        console.warn("xG 데이터 조회 실패 (API 제한 가능성)", e);
+    }
+  }
+
+  // 4. 다음 경기 상세 정보 (배당률 포함)
   let lineups = null;
   let odds = null;
   let injuries = null;
@@ -149,11 +204,11 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
         nextMatchInfo = {
           date: match.fixture?.date || match.date,
           league: match.league?.name,
-          round: match.league?.round
+          round: match.league?.round,
+          venue: match.fixture?.venue?.name
         };
 
         if (fixtureId) {
-            // 병렬로 상세 데이터 수집
             const [lineupData, oddsData, injuryData] = await Promise.all([
               getFixtureLineups(sport, fixtureId),
               getOdds(sport, fixtureId),
@@ -168,52 +223,36 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
       console.warn("다음 경기 상세 정보 조회 실패:", e);
   }
 
-  // 4. 리그 순위 및 선수 데이터 조회
+  // 5. 리그 순위
   let standings = null;
-  let homePlayers = null;
-  let awayPlayers = null;
-
   try {
     if (homeForm && homeForm.length > 0) {
       const lastMatch = homeForm[0];
       const leagueId = lastMatch.league?.id;
       const season = lastMatch.league?.season?.toString();
       
-      if (season) {
-        const [standingsData, hPlayers, aPlayers] = await Promise.all([
-          leagueId ? getStandings(sport, leagueId, season) : Promise.resolve(null),
-          getTeamPlayers(sport, homeId, season),
-          getTeamPlayers(sport, awayId, season)
-        ]);
-
+      if (season && leagueId) {
+        const standingsData = await getStandings(sport, leagueId, season);
         if (standingsData && standingsData.length > 0) {
            standings = standingsData[0]?.league?.standings || standingsData;
         }
-
-        // 선수 데이터가 너무 많으면 상위 10명만 필터링하거나 간소화 필요 (여기선 그대로 전달하되 Gemini Prompt에서 처리)
-        homePlayers = hPlayers;
-        awayPlayers = aPlayers;
       }
     }
   } catch (e) {
-    console.warn("추가 정보(순위/선수) 조회 실패:", e);
+    console.warn("순위 정보 조회 실패:", e);
   }
 
   return {
     sport,
     meta: nextMatchInfo,
-    homeTeam: { name: homeName, id: homeId, recentMatches: homeForm },
-    awayTeam: { name: awayName, id: awayId, recentMatches: awayForm },
+    homeTeam: { name: homeName, id: homeId, recentMatches: homeForm, lastMatchStats: homeLastMatchStats },
+    awayTeam: { name: awayName, id: awayId, recentMatches: awayForm, lastMatchStats: awayLastMatchStats },
     headToHead: h2h,
     standings: standings,
     matchDetails: {
       lineups,
-      odds,     // 배당률 추가
-      injuries  // 부상자 추가
-    },
-    players: {
-      home: homePlayers,
-      away: awayPlayers
+      odds, 
+      injuries
     }
   };
 }

@@ -1,60 +1,89 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { MatchData } from "../types";
+import { MatchData, CartItem, BatchAnalysisResult } from "../types";
 import { getMatchContextData } from "./footballApi";
 
-// 변경: 전문 용어 배제, 초보자 친화적 용어 사용
+// [SYSTEM INSTRUCTION UPDATE] 
+// Ensemble Prompting: 3명의 전문가 페르소나를 시뮬레이션하여 합의 도출
 const SYSTEM_INSTRUCTION = `
 **Role (역할)**
-당신은 Google Gemini 3.0 Pro 기반의 **친절한 스포츠 경기 해설가이자 분석가**입니다.
-당신의 독자는 스포츠 분석 용어(핸디캡, 언오버, 정배/역배 등)를 전혀 모르는 **일반인 초보자**입니다.
-따라서 전문 용어 대신 **누구나 이해할 수 있는 쉬운 일상 용어**로 풀어서 설명해야 합니다.
+당신은 **MatchInsight AI**의 수석 분석가입니다. 당신은 혼자 생각하지 않고, 내부적으로 **3명의 전문 에이전트**를 소환하여 토론을 거친 뒤 최종 결론을 내립니다.
 
-**Analysis Philosophy (분석 철학)**
-1. **쉬운 용어 사용 (Critical):** 
-   - '핸디캡 승' → **"홈팀이 2골 차 이상 여유 있게 이길 것 같습니다."**
-   - '마핸/플핸' → 언급 금지. 점수 차이로 구체적으로 설명.
-   - '언더/오버' → **"양 팀 합쳐 골이 많이(또는 적게) 날 것 같습니다."**
-   - '배당률' → **"사람들의 기대치"** 혹은 **"예상 확률"**로 표현.
-2. **명확한 승부 예측:** 
-   - 애매한 표현보다 "A팀의 우세가 예상됩니다" 혹은 "무승부 가능성이 매우 높습니다"라고 명확히 하십시오.
-3. **리스크 경고:** 
-   - 강팀이라도 방심할 수 있는 이유(부상, 일정 등)를 이야기하듯 설명하십시오.
+**The 3 Agents (전문가 패널)**
+1.  **🕵️ Agent A (Data Miner):** 감정을 배제하고 오직 **데이터(xG, 점유율, H2H)**만 봅니다. 최근 경기력의 '질(Quality)'에 집중합니다.
+2.  **📰 Agent B (News Analyst):** Google Search를 통해 **최신 뉴스, 부상자, 라커룸 이슈, 동기부여** 등 정성적 변수를 체크합니다.
+3.  **💰 Agent C (Oddsmaker):** **배당률(Odds)**을 분석합니다. 시장의 기대치(내재 확률)와 실제 승률 간의 괴리(**Value**)를 찾습니다.
 
-**Output Format (출력 형식 - 필수 준수)**
-반드시 아래 포맷을 따라 **한국어**로 작성하십시오.
+**Process (사고 과정)**
+각 에이전트가 자신의 관점에서 분석한 뒤, 당신(Moderator)이 이를 종합하여 **'적중률 높은 결론'**으로 합의(Synthesis)하십시오.
+
+**Output Format (Markdown)**
+다음 형식을 엄격히 준수하십시오.
 
 ---
-### 🏟️ [종목] 경기 분석 리포트: [홈팀] vs [원정팀]
-> **경기 정보:** [일시/라운드 정보]
+### 🏟️ [종목] Ensemble 분석: [홈팀] vs [원정팀]
+> **경기 정보:** [일시/리그] | **시장 배당:** [홈승 / 무 / 패]
 
-### 🚑 핵심 변수: 누가 나오고 못 나오나요?
-- **홈팀 상황:** (주요 선수의 부상 여부와 그 영향)
-- **원정팀 상황:** (주요 선수의 부상 여부와 그 영향)
-- **알기 쉬운 설명:** (이 결장이 경기에 미칠 영향을 초등학생도 알게 설명)
+### 🗳️ 전문가 합의 (Ensemble Result)
+- **최종 판단:** (3명의 의견을 종합한 결론. 예: "데이터는 홈 우세지만, 배당과 부상 변수를 고려하여 무승부 가능성 높음")
+- **합의된 승률:** 홈 [XX]% / 무 [XX]% / 원정 [XX]%
 
-### 🔭 승부 예측과 관전 포인트
-- **예상 흐름:** (일방적인 공격일지, 지루한 공방전일지 설명)
-- **점수 차 예상:** (예: 홈팀이 1점 차로 간신히 이길 듯 vs 3점 차 대승 예상)
-- **득점 양상:** (골 잔치 vs 침묵의 경기)
+### 📊 xG 기반 경기력 분석 (Agent A)
+- **Data Insight:** (제공된 xG 데이터나 최근 스탯을 기반으로, 득점 불운이나 거품이 있는지 분석)
+- **최근 폼 평가:** (단순 승패가 아닌 경기 내용의 질 평가)
 
-### 📊 데이터가 말해주는 것
-- **최근 분위기:** (누가 더 상승세인가요?)
-- **상대 전적:** (과거에 만나면 누가 이겼나요?)
+### 📰 변수 & 리스크 체크 (Agent B)
+- **News/Issue:** (검색된 부상자, 결장자, 감독 인터뷰 등)
+- **Risk Factor:** (승부를 뒤집을 만한 치명적 변수)
 
-### ⚠️ 최종 픽 & 요약
-- **최종 추천:** [홈팀 승리 / 무승부 / 원정팀 승리] 중 택 1
-- **예상 스코어:** 0:0
-- **한 줄 요약:** (친구에게 조언하듯 쉽고 명확하게)
+### 💰 배당 밸류 & 전략 (Agent C)
+- **Odds Analysis:** (현재 배당이 정배당 메리트가 있는지, 역배당 도전 가치가 있는지 평가)
+- **Betting Tip:** (주력 픽과 부주력/보험 픽 제안)
+
+### 🏁 최종 픽 (Final Pick)
+- **Main:** [홈승 / 무승부 / 원정승 / 언더 / 오버]
+- **Sub:** [핸디캡 등]
+- **Score:** [홈] : [원정]
 ---
+
+**[Machine Data]**
+(마지막에 반드시 아래 JSON 포맷을 코드 블록으로 출력. 승률 합은 100)
+\`\`\`json
+{
+  "probabilities": {
+    "home": 55,
+    "draw": 25,
+    "away": 20
+  },
+  "score": {
+    "home": 2,
+    "away": 1
+  }
+}
+\`\`\`
 `;
 
-/**
- * 경기 분석 함수 (스트리밍 지원)
- * @param matchData 경기 데이터
- * @param apiKey Google API Key
- * @param onStreamChunk 스트리밍 데이터를 받아 UI를 업데이트할 콜백 함수
- */
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function generateWithRetry(ai: GoogleGenAI, params: any, maxRetries = 5) {
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    try {
+      return await ai.models.generateContentStream(params);
+    } catch (error: any) {
+      attempt++;
+      if (error.status === 429 || error.code === 429 || error.message?.includes('429')) {
+        const delay = 2000 * Math.pow(2, attempt - 1);
+        console.warn(`Gemini 429 Error (Attempt ${attempt}/${maxRetries}). Waiting ${delay}ms...`);
+        if (attempt >= maxRetries) throw error;
+        await wait(delay);
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 export const analyzeMatch = async (
   matchData: MatchData, 
   apiKey: string,
@@ -65,62 +94,53 @@ export const analyzeMatch = async (
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-pro-preview"; 
 
-  // --- [CASE 1: 파일 업로드 종합 분석 모드] ---
+  const tools = matchData.useAutoSearch ? [{ googleSearch: {} }] : undefined;
+
+  // --- [CASE 1: Synthesis Mode] ---
   if (matchData.uploadedContent) {
     const { contextAnalysis, noContextAnalysis } = matchData.uploadedContent;
-
-    const synthesisPrompt = `
-      당신은 스포츠 분석 최종 결정권자입니다.
-      동일한 경기에 대해 작성된 **두 가지 버전의 리포트**가 있습니다.
+    let synthesisPrompt = `
+      [임무] 두 개의 분석 리포트를 'Ensemble Prompting' 기법으로 교차 검토하여 최종 결론을 도출하십시오.
       
-      하나는 '뉴스/맥락'을 중요시했고, 다른 하나는 '데이터/통계'를 중요시했습니다.
-      이 두 리포트를 읽고, 초보자도 이해하기 쉽게 하나로 합쳐서 **최종 결론**을 내려주세요.
-
-      ---
-      **📂 리포트 A (맥락 & 뉴스 중심):**
-      ${contextAnalysis}
-
-      **📂 리포트 B (데이터 & 통계 중심):**
-      ${noContextAnalysis}
-      ---
-
-      **작성 요청:**
-      1. 두 리포트의 결론이 같다면 더 확신을 가지고 추천해주세요.
-      2. 결론이 다르다면, 왜 다른지 설명하고 당신의 최종 판단을 알려주세요.
-      3. **절대 전문 용어를 쓰지 마세요.** 쉽고 친절하게 설명해주세요.
-      4. 위 SYSTEM_INSTRUCTION의 양식을 그대로 따르세요. 제목 앞에는 반드시 '[최종분석]' 태그를 붙여주세요.
+      [Report A - Context]: ${contextAnalysis}
+      [Report B - Data]: ${noContextAnalysis}
+      
+      Agent A, B, C의 관점을 모두 적용하여 가장 합리적인 결론을 내리세요.
     `;
 
+    if (matchData.useAutoSearch) {
+        synthesisPrompt += `\n\n[System Command] Agent B(News Analyst)는 Google Search를 사용하여 현재 시점의 최신 이슈를 팩트체크하고 반영하십시오.`;
+    }
+
     try {
-      // 스트리밍 요청
-      const responseStream = await ai.models.generateContentStream({
+      const responseStream = await generateWithRetry(ai, {
         model,
         contents: synthesisPrompt,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          temperature: 0.1,
+        config: { 
+            systemInstruction: SYSTEM_INSTRUCTION, 
+            temperature: 0.1,
+            tools: tools 
         },
       });
 
       let fullText = "";
+      let finalGroundingMetadata = null;
       for await (const chunk of responseStream) {
-        const chunkText = chunk.text;
-        if (chunkText) {
-          fullText += chunkText;
-          if (onStreamChunk) onStreamChunk(chunkText);
+        if (chunk.text) {
+          fullText += chunk.text;
+          if (onStreamChunk) onStreamChunk(chunk.text);
+        }
+        if (chunk.candidates?.[0]?.groundingMetadata) {
+            finalGroundingMetadata = chunk.candidates[0].groundingMetadata;
         }
       }
-
-      return { text: fullText, groundingMetadata: null, rawData: null };
+      return { text: fullText, groundingMetadata: finalGroundingMetadata, rawData: null };
     } catch (error: any) {
-      console.error("Gemini Synthesis Error:", error);
       throw new Error("분석 종합 중 오류가 발생했습니다: " + error.message);
     }
   }
 
-  // --- [CASE 2: 일반 신규 분석 모드 (+ In-Context Learning)] ---
-  
-  // 1. API-Sports에서 실제 데이터 가져오기
+  // --- [CASE 2: Single Analysis Mode] ---
   let sportsData = null;
   let dataFetchError = null;
   
@@ -131,82 +151,60 @@ export const analyzeMatch = async (
     dataFetchError = e.message;
   }
 
-  // 2. 프롬프트 구성
-  let prompt = `
-    다음 [${matchData.sport}] 경기를 분석해 주세요: ${matchData.homeTeam} (홈) vs ${matchData.awayTeam} (원정).
-    사용자 입력 컨텍스트: ${matchData.context || "없음"}
-  `;
+  let prompt = `[${matchData.sport}] Ensemble 분석 요청: ${matchData.homeTeam} vs ${matchData.awayTeam}.\n사용자 메모: ${matchData.context || "없음"}`;
 
-  // [중요] 학습 데이터(Training Data) 주입 - In-Context Learning
   if (matchData.trainingData && matchData.trainingData.length > 0) {
-    prompt += `\n\n=== 🧠 [나의 분석 스타일 학습 데이터] ===\n`;
-    prompt += `아래는 내가 평소에 분석했던 스타일이나 선호하는 형식의 예시들입니다. \n`;
-    prompt += `이 예시들의 **말투, 논리 전개 방식, 분석 깊이**를 학습하여 이번 경기 분석에 적용하세요.\n`;
-    
-    matchData.trainingData.forEach((data, index) => {
-        prompt += `\n--- [학습 예시 파일 #${index + 1}] ---\n`;
-        prompt += data.substring(0, 3000); 
-        prompt += `\n--- [예시 파일 #${index + 1} 끝] ---\n`;
+    prompt += `\n\n=== 🧠 Reference Style ===\n`;
+    matchData.trainingData.slice(0, 3).forEach((data, index) => {
+        prompt += `\n[Sample ${index + 1}]\n${data.substring(0, 1000)}...\n`;
     });
-    prompt += `\n=========================================\n`;
-    prompt += `위 학습 데이터를 참고하되, 분석 내용은 아래의 최신 실시간 데이터(REAL-TIME API DATA)를 기반으로 작성하세요.\n`;
   }
 
   if (sportsData) {
+    // [PROMPT UPDATE] xG 및 상세 스탯 포함
     prompt += `
-      \n\n### ⚡ REAL-TIME API DATA (이 데이터를 절대적 근거로 사용하세요):
+      \n\n### ⚡ Data Source for Agent A (Data Miner):
+      - **Home Team Last Match Stats (xG included if available):** ${JSON.stringify(sportsData.homeTeam.lastMatchStats) || "No advanced stats"}
+      - **Away Team Last Match Stats (xG included if available):** ${JSON.stringify(sportsData.awayTeam.lastMatchStats) || "No advanced stats"}
+      - **H2H (Last 5):** ${JSON.stringify(sportsData.headToHead)}
+      - **League Standings:** ${JSON.stringify(sportsData.standings)}
+      - **Home Recent Form:** ${JSON.stringify(sportsData.homeTeam.recentMatches)}
+      - **Away Recent Form:** ${JSON.stringify(sportsData.awayTeam.recentMatches)}
+
+      ### ⚡ Data Source for Agent C (Oddsmaker):
+      - **Next Match Info:** ${JSON.stringify(sportsData.meta)}
+      - **OFFICIAL BOOKMAKER ODDS:** ${JSON.stringify(sportsData.matchDetails.odds) || "Not Available"}
       
-      **1. 경기 메타 정보:**
-      ${JSON.stringify(sportsData.meta, null, 2)}
-
-      **2. 배당률(Odds) - 시장의 예측:**
-      ${sportsData.matchDetails.odds ? JSON.stringify(sportsData.matchDetails.odds, null, 2) : "배당률 데이터 없음"}
-
-      **3. 부상자 명단(Injuries):**
-      ${sportsData.matchDetails.injuries && sportsData.matchDetails.injuries.length > 0 
-        ? JSON.stringify(sportsData.matchDetails.injuries, null, 2) 
-        : "보고된 주요 부상자 없음"}
-
-      **4. 라인업(Lineups):**
-      ${JSON.stringify(sportsData.matchDetails.lineups, null, 2)}
-
-      **5. 최근 전적 및 순위:**
-      - H2H: ${JSON.stringify(sportsData.headToHead, null, 2)}
-      - Standings: ${JSON.stringify(sportsData.standings, null, 2)}
-      - Home Last 5: ${JSON.stringify(sportsData.homeTeam.recentMatches?.slice(0, 5), null, 2)}
-      - Away Last 5: ${JSON.stringify(sportsData.awayTeam.recentMatches?.slice(0, 5), null, 2)}
+      ### ⚡ Data Source for Agent B (News):
+      - **Official Injuries:** ${JSON.stringify(sportsData.matchDetails.injuries)}
+      - **Predicted Lineups:** ${JSON.stringify(sportsData.matchDetails.lineups)}
     `;
   } else {
-    prompt += `\n\n경고: API 데이터를 가져오지 못했습니다 (${dataFetchError}). Google Search를 통해 정보를 수집하세요.`;
+    prompt += `\n\nWarning: API Data failed (${dataFetchError}). All Agents must rely on Google Search.`;
   }
 
-  prompt += `\n\n작성 지침: 전문 용어(핸디캡, 언오버 등)를 절대 사용하지 말고, 친구에게 설명하듯 쉬운 말로 풀어서 작성하세요.`;
+  if (matchData.useAutoSearch) {
+      prompt += `\n\n[System Command] Agent B는 Google Search 도구를 사용하여 '${matchData.homeTeam} vs ${matchData.awayTeam} preview prediction injuries'를 검색하고 최신 정보를 확보하십시오.`;
+  }
 
   try {
-    // 스트리밍 요청
-    const responseStream = await ai.models.generateContentStream({
+    const responseStream = await generateWithRetry(ai, {
       model,
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
-        tools: [{ googleSearch: {} }], // 검색 도구 사용
-        temperature: 0.2,
+        tools: tools,
+        temperature: 0.2, // 분석 정확도를 위해 낮게 유지
       },
     });
 
     let fullText = "";
     let finalGroundingMetadata = null;
-
     for await (const chunk of responseStream) {
-      const chunkText = chunk.text;
-      
-      // 스트리밍 중에는 텍스트를 계속 UI로 전달
-      if (chunkText) {
-        fullText += chunkText;
-        if (onStreamChunk) onStreamChunk(chunkText);
+      if (chunk.text) {
+        fullText += chunk.text;
+        if (onStreamChunk) onStreamChunk(chunk.text);
       }
-      
-      // 메타데이터는 보통 마지막 청크 혹은 누적된 응답에 포함됨
       if (chunk.candidates?.[0]?.groundingMetadata) {
         finalGroundingMetadata = chunk.candidates[0].groundingMetadata;
       }
@@ -214,7 +212,131 @@ export const analyzeMatch = async (
 
     return { text: fullText, groundingMetadata: finalGroundingMetadata, rawData: sportsData };
   } catch (error: any) {
-    console.error("Gemini API 오류:", error);
-    throw new Error(error.message || "경기 분석에 실패했습니다.");
+    let msg = error.message || "분석 실패";
+    if (msg.includes('429')) msg = "현재 요청량이 많아 분석이 지연되고 있습니다 (429). 잠시 후 다시 시도해주세요.";
+    throw new Error(msg);
+  }
+};
+
+/**
+ * [BATCH UPDATE] 조합 추천 기능 - Ensemble 로직 적용
+ */
+export const recommendCombination = async (
+  cartItems: CartItem[], 
+  apiKey: string,
+  onStatusUpdate: (msg: string) => void,
+  folderCount: number = 2,
+  useAutoSearch: boolean = false
+): Promise<BatchAnalysisResult> => {
+  if (!apiKey) throw new Error("API 키가 필요합니다.");
+  if (cartItems.length < folderCount) throw new Error(`최소 ${folderCount}경기 이상이 필요합니다.`);
+
+  const ai = new GoogleGenAI({ apiKey });
+  const model = "gemini-3-pro-preview";
+
+  onStatusUpdate(`데이터 수집 중... (0/${cartItems.length})`);
+
+  const enrichedMatches = [];
+  for (let i = 0; i < cartItems.length; i++) {
+    const item = cartItems[i];
+    onStatusUpdate(`데이터 수집 중... [${item.homeTeam} vs ${item.awayTeam}] (${i + 1}/${cartItems.length})`);
+    
+    let sportsData = null;
+    try {
+      sportsData = await getMatchContextData(item.sport, item.homeTeam, item.awayTeam);
+      await wait(500); 
+    } catch (e) {
+      console.warn(`Data fetch failed for ${item.homeTeam}`, e);
+    }
+    enrichedMatches.push({ item, data: sportsData });
+  }
+
+  onStatusUpdate(`Gemini의 3 Agents(Data, News, Odds)가 전 경기를 심층 분석 중입니다... (Auto-Search: ${useAutoSearch ? 'ON' : 'OFF'})`);
+
+  let prompt = `
+    당신은 최고의 승률을 자랑하는 AI 베팅 알고리즘입니다.
+    다음 ${cartItems.length}개 경기를 Agent A(Data), B(News), C(Odds)의 관점에서 평가하고, **가장 기대값(EV)이 높은 ${folderCount}폴더 조합**을 추출하십시오.
+
+    [분석 대상 경기]
+    ${enrichedMatches.map((m, idx) => `
+    GAME ${idx + 1}: ${m.item.sport} - ${m.item.homeTeam} vs ${m.item.awayTeam}
+    - Odds: ${JSON.stringify(m.data?.matchDetails.odds) || "Unknown"}
+    - Last Match Stats (xG): ${m.data?.homeTeam.lastMatchStats ? "Available" : "N/A"}
+    - Form/H2H: ${m.data ? "Available" : "Data Missing"}
+    - Details: ${m.data ? JSON.stringify(m.data.meta) : ""}
+    `).join('\n')}
+
+    [알고리즘 수행 지침]
+    1. **Agent A (Data):** xG와 최근 경기력을 바탕으로 '정배당의 신뢰도'를 평가하십시오.
+    2. **Agent C (Odds):** 배당률 대비 실제 승리 확률이 높은 'Value Bet'을 식별하십시오.
+    3. **Ensemble:** 리스크가 적고 적중 확률이 가장 높은 경기를 우선순위로 선정하십시오.
+
+    [System Command]
+    ${useAutoSearch ? "Agent B(News)는 Google Search를 사용하여 부상자/결장자 정보를 확인하고 리스크를 필터링하십시오." : ""}
+
+    [Output JSON Format Only]
+    {
+      "matches": [
+        {
+          "homeTeam": "Team A",
+          "awayTeam": "Team B",
+          "prediction": "홈승 (Ensemble Pick)",
+          "confidence": 88,
+          "reason": "Agent A: xG 우세, Agent C: 배당 1.70 메리트 있음. 부상자 없음.",
+          "riskLevel": "LOW",
+          "sport": "football" 
+        },
+        ...
+      ],
+      "recommendedCombination": {
+        "matches": [ 
+          // 위 matches 배열에서 선별된 ${folderCount}개 경기 객체 복사 (필드 누락 없이)
+        ],
+        "totalReason": "Agent A, B, C가 만장일치로 추천하는 가장 안전하고 기대값이 높은 조합입니다."
+      }
+    }
+  `;
+
+  const tools = useAutoSearch ? [{ googleSearch: {} }] : undefined;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.1, 
+        tools: tools 
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("AI 응답이 비어있습니다.");
+    
+    const result = JSON.parse(text) as BatchAnalysisResult;
+
+    // [MERGE UPDATE] 원래의 한글 팀 이름 복구
+    const mergeKoreanNames = (match: any) => {
+        const original = cartItems.find(item => 
+            // 영문 이름 매칭 시도 (Gemini가 반환한 이름과 입력된 영문 이름이 일치한다고 가정)
+            item.homeTeam === match.homeTeam && item.awayTeam === match.awayTeam
+        );
+        if (original) {
+            return { 
+                ...match, 
+                homeTeamKo: original.homeTeamKo, 
+                awayTeamKo: original.awayTeamKo 
+            };
+        }
+        return match;
+    };
+
+    result.matches = result.matches.map(mergeKoreanNames);
+    result.recommendedCombination.matches = result.recommendedCombination.matches.map(mergeKoreanNames);
+    
+    return result;
+
+  } catch (error: any) {
+    throw new Error("조합 분석 중 오류 발생: " + error.message);
   }
 };

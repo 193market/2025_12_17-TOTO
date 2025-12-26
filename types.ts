@@ -11,14 +11,15 @@ export interface MatchData {
   sport: SportType;
   homeTeam: string;
   awayTeam: string;
+  homeTeamKo?: string; // [NEW] 홈팀 한글 이름
+  awayTeamKo?: string; // [NEW] 원정팀 한글 이름
   date?: string;
   context?: string;
-  // 파일 업로드 분석을 위한 필드 추가
+  useAutoSearch?: boolean;
   uploadedContent?: {
-    contextAnalysis: string; // 맥락이 포함된 분석 파일 내용
-    noContextAnalysis: string; // 맥락이 없는(데이터 위주) 분석 파일 내용
+    contextAnalysis: string;
+    noContextAnalysis: string;
   };
-  // 인-컨텍스트 러닝을 위한 과거 데이터 (단순 문자열 배열로 전달됨, App.tsx에서 필터링 후 주입)
   trainingData?: string[];
 }
 
@@ -27,6 +28,7 @@ export interface AnalysisState {
   data: string | null;
   error: string | null;
   groundingMetadata?: any;
+  batchResult?: BatchAnalysisResult | null;
 }
 
 export enum AnalysisStatus {
@@ -34,4 +36,32 @@ export enum AnalysisStatus {
   ANALYZING = 'ANALYZING',
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR'
+}
+
+export interface CartItem {
+  id: string;
+  sport: SportType;
+  homeTeam: string;
+  awayTeam: string;
+  homeTeamKo?: string; // [NEW] 홈팀 한글 이름
+  awayTeamKo?: string; // [NEW] 원정팀 한글 이름
+}
+
+export interface AnalyzedMatchItem {
+  homeTeam: string;
+  awayTeam: string;
+  homeTeamKo?: string; // [NEW] 결과 표시용
+  awayTeamKo?: string; // [NEW] 결과 표시용
+  prediction: string;
+  confidence: number;
+  reason: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+export interface BatchAnalysisResult {
+  matches: AnalyzedMatchItem[];
+  recommendedCombination: {
+    matches: AnalyzedMatchItem[];
+    totalReason: string;
+  };
 }
