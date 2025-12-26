@@ -166,10 +166,10 @@ export const analyzeMatch = async (
       \n\n### ⚡ Data Source for Agent A (Data Miner):
       - **Home Team Last Match Stats (xG included if available):** ${JSON.stringify(sportsData.homeTeam.lastMatchStats) || "No advanced stats"}
       - **Away Team Last Match Stats (xG included if available):** ${JSON.stringify(sportsData.awayTeam.lastMatchStats) || "No advanced stats"}
-      - **H2H (Last 5):** ${JSON.stringify(sportsData.headToHead)}
-      - **League Standings:** ${JSON.stringify(sportsData.standings)}
-      - **Home Recent Form:** ${JSON.stringify(sportsData.homeTeam.recentMatches)}
-      - **Away Recent Form:** ${JSON.stringify(sportsData.awayTeam.recentMatches)}
+      - **H2H (Last 5):** ${JSON.stringify(sportsData.headToHead) || "API Plan Restricted"}
+      - **League Standings:** ${JSON.stringify(sportsData.standings) || "Not Available"}
+      - **Home Recent Form:** ${JSON.stringify(sportsData.homeTeam.recentMatches) || "API Plan Restricted"}
+      - **Away Recent Form:** ${JSON.stringify(sportsData.awayTeam.recentMatches) || "API Plan Restricted"}
 
       ### ⚡ Data Source for Agent C (Oddsmaker):
       - **Next Match Info:** ${JSON.stringify(sportsData.meta)}
@@ -234,7 +234,7 @@ export const recommendCombination = async (
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-pro-preview";
 
-  onStatusUpdate(`데이터 수집 중... (0/${cartItems.length})`);
+  onStatusUpdate(`데이터 수집 중... (0/${cartItems.length}) - 10초당 1건 처리`);
 
   const enrichedMatches = [];
   for (let i = 0; i < cartItems.length; i++) {
@@ -243,9 +243,9 @@ export const recommendCombination = async (
     
     let sportsData = null;
     try {
+      // The throttle is handled inside getMatchContextData now.
       sportsData = await getMatchContextData(item.sport, item.homeTeam, item.awayTeam);
-      await wait(500); 
-    } catch (e) {
+    } catch (e: any) {
       console.warn(`Data fetch failed for ${item.homeTeam}`, e);
     }
     enrichedMatches.push({ item, data: sportsData });
@@ -261,8 +261,7 @@ export const recommendCombination = async (
     ${enrichedMatches.map((m, idx) => `
     GAME ${idx + 1}: ${m.item.sport} - ${m.item.homeTeam} vs ${m.item.awayTeam}
     - Odds: ${JSON.stringify(m.data?.matchDetails.odds) || "Unknown"}
-    - Last Match Stats (xG): ${m.data?.homeTeam.lastMatchStats ? "Available" : "N/A"}
-    - Form/H2H: ${m.data ? "Available" : "Data Missing"}
+    - Form/H2H: ${m.data?.homeTeam.recentMatches ? "Available" : "Restricted/Missing"}
     - Details: ${m.data ? JSON.stringify(m.data.meta) : ""}
     `).join('\n')}
 

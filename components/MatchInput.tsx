@@ -11,9 +11,139 @@ interface MatchInputProps {
   previousAnalysis?: string | null;
 }
 
-// [MAPPING UPDATE] 배트맨/토토 용어 및 주요 팀 매핑 데이터 대폭 확장
+// [MAPPING UPDATE] 배트맨/토토 용어 및 주요 팀 매핑 데이터 대폭 확장 (API-Sports 공식 명칭 기준)
 const TEAM_MAPPINGS: Record<string, string> = {
-  // --- [농구: NBA] (배트맨 약어 위주) ---
+  // --- [축구: 영국 2부 (EFL 챔피언십) 및 하부] ---
+  // * API 검색 성공률을 위해 City, United, Town, FC 등 풀네임 사용 필수
+  '레스터C': 'Leicester City', '레스터': 'Leicester City',
+  '리즈': 'Leeds United',
+  '사우스햄': 'Southampton', '사우스햄튼': 'Southampton', '사우샘프': 'Southampton',
+  '입스위치': 'Ipswich Town',
+  '노리치C': 'Norwich City', '노리치': 'Norwich City',
+  '웨스트브': 'West Bromwich Albion', 'WBA': 'West Bromwich Albion',
+  '헐시티': 'Hull City',
+  '코번트리': 'Coventry City',
+  '미들즈브': 'Middlesbrough',
+  '프레스턴': 'Preston North End',
+  '선덜랜드': 'Sunderland',
+  '왓포드': 'Watford',
+  '브리스톨': 'Bristol City',
+  '밀월': 'Millwall',
+  '카디프': 'Cardiff City',
+  '스완지': 'Swansea City', '스완지C': 'Swansea City',
+  '블랙번': 'Blackburn Rovers',
+  '스토크': 'Stoke City',
+  'QPR': 'QPR', '퀸즈파크': 'QPR',
+  '버밍엄C': 'Birmingham City', '버밍엄': 'Birmingham City',
+  '플리머스': 'Plymouth Argyle',
+  '셰필드웬': 'Sheffield Wednesday', '셰필드W': 'Sheffield Wednesday',
+  '로더럼': 'Rotherham United',
+  '허더즈필': 'Huddersfield Town',
+  '옥스퍼드': 'Oxford United', '옥스포드': 'Oxford United',
+  '포츠머스': 'Portsmouth',
+  '더비': 'Derby County', '더비카운': 'Derby County',
+  '볼턴': 'Bolton Wanderers',
+  '반즐리': 'Barnsley',
+  '피터버러': 'Peterborough United',
+  '블랙풀': 'Blackpool',
+  '찰턴': 'Charlton Athletic',
+  '위건': 'Wigan Athletic',
+  '레딩': 'Reading',
+
+  // --- [축구: EPL 및 해외축구 주요 팀] ---
+  '토트넘': 'Tottenham Hotspur',
+  '맨시티': 'Manchester City',
+  '맨유': 'Manchester United',
+  '리버풀': 'Liverpool',
+  '아스날': 'Arsenal',
+  '첼시': 'Chelsea',
+  '울버햄튼': 'Wolverhampton Wanderers',
+  '아스톤빌': 'Aston Villa', '아스톤': 'Aston Villa',
+  '뉴캐슬': 'Newcastle United',
+  '브라이튼': 'Brighton & Hove Albion',
+  '웨스트햄': 'West Ham United',
+  '에버튼': 'Everton',
+  '노팅엄': 'Nottingham Forest',
+  '풀럼': 'Fulham',
+  '크리스탈': 'Crystal Palace', '팰리스': 'Crystal Palace',
+  '브렌트퍼': 'Brentford', '브렌트': 'Brentford',
+  '본머스': 'Bournemouth', 'AFC본머스': 'Bournemouth',
+  '루턴타운': 'Luton Town',
+  '셰필드': 'Sheffield United', '셰필드U': 'Sheffield United',
+  '번리': 'Burnley',
+  '레알마드': 'Real Madrid', '레알': 'Real Madrid',
+  '바르셀로': 'Barcelona', '바르사': 'Barcelona',
+  '아틀레티': 'Atletico Madrid', 'AT마드리드': 'Atletico Madrid',
+  '세비야': 'Sevilla',
+  '발렌시아': 'Valencia',
+  '지로나': 'Girona',
+  '빌바오': 'Athletic Club',
+  '뮌헨': 'Bayern Munich', '바이에른': 'Bayern Munich',
+  '도르트문': 'Borussia Dortmund',
+  '레버쿠젠': 'Bayer Leverkusen',
+  '라이프치': 'RB Leipzig',
+  '슈투트가': 'VfB Stuttgart',
+  '파리생제': 'Paris Saint Germain', '파리': 'Paris Saint Germain', 'PSG': 'Paris Saint Germain',
+  '모나코': 'AS Monaco',
+  '마르세유': 'Marseille',
+  '릴': 'Lille',
+  '리옹': 'Lyon',
+  '인터밀란': 'Inter Milan',
+  'AC밀란': 'AC Milan',
+  '유벤투스': 'Juventus',
+  '나폴리': 'Napoli',
+  '로마': 'AS Roma',
+  '라치오': 'Lazio',
+  '아탈란타': 'Atalanta',
+  '피오렌티': 'Fiorentina',
+  
+  // --- [축구: 국가대표] ---
+  '대한민국': 'South Korea', '한국': 'South Korea',
+  '일본': 'Japan',
+  '중국': 'China',
+  '이란': 'Iran',
+  '호주': 'Australia',
+  '사우디': 'Saudi Arabia',
+  '카타르': 'Qatar',
+  '요르단': 'Jordan',
+  '이라크': 'Iraq',
+  '우즈베키': 'Uzbekistan', '우즈벡': 'Uzbekistan',
+  '태국': 'Thailand',
+  '베트남': 'Vietnam',
+  '인도네시': 'Indonesia',
+  '말레이시': 'Malaysia',
+  '바레인': 'Bahrain',
+  '오만': 'Oman',
+  '키르기스': 'Kyrgyzstan',
+  '팔레스타': 'Palestine',
+  '앙골라': 'Angola',
+  '짐바브웨': 'Zimbabwe',
+  '케냐': 'Kenya',
+  '코모로': 'Comoros',
+  '수단': 'Sudan',
+  '니제르': 'Niger',
+  '르완다': 'Rwanda',
+  '베냉': 'Benin',
+  '리비아': 'Libya',
+  '알제리': 'Algeria',
+  '부르키나': 'Burkina Faso', '부르키나파소': 'Burkina Faso',
+  '모리타니': 'Mauritania',
+  '튀니지': 'Tunisia',
+  '나미비아': 'Namibia',
+  '말리': 'Mali',
+  '남아공': 'South Africa',
+  '모로코': 'Morocco',
+  '콩고민주': 'DR Congo',
+  '잠비아': 'Zambia',
+  '탄자니아': 'Tanzania',
+  '코트디부': 'Ivory Coast',
+  '나이지리': 'Nigeria',
+  '이집트': 'Egypt',
+  '가나': 'Ghana',
+  '카메룬': 'Cameroon',
+  '세네갈': 'Senegal',
+
+  // --- [농구: NBA] ---
   '뉴욕닉스': 'New York Knicks',
   '클리캐벌': 'Cleveland Cavaliers',
   '오클썬더': 'Oklahoma City Thunder',
@@ -73,46 +203,19 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '페퍼저축': 'AI Peppers',
   '도로공사': 'Hi-pass',
 
-  // --- [축구: EPL 및 해외축구] ---
-  '토트넘': 'Tottenham',
-  '맨시티': 'Manchester City',
-  '맨유': 'Manchester United',
-  '리버풀': 'Liverpool',
-  '아스날': 'Arsenal',
-  '첼시': 'Chelsea',
-  '울버햄튼': 'Wolverhampton',
-  '아스톤빌': 'Aston Villa', '아스톤': 'Aston Villa',
-  '뉴캐슬': 'Newcastle',
-  '브라이튼': 'Brighton',
-  '웨스트햄': 'West Ham',
-  '에버튼': 'Everton',
-  '노팅엄': 'Nottingham Forest',
-  '풀럼': 'Fulham',
-  '크리스탈': 'Crystal Palace', '팰리스': 'Crystal Palace',
-  '브렌트퍼': 'Brentford', '브렌트': 'Brentford',
-  '본머스': 'Bournemouth',
-  '루턴타운': 'Luton',
-  '셰필드': 'Sheffield Utd',
-  '번리': 'Burnley',
-  '레알마드': 'Real Madrid', '레알': 'Real Madrid',
-  '바르셀로': 'Barcelona', '바르사': 'Barcelona',
-  '아틀레티': 'Atletico Madrid',
-  '뮌헨': 'Bayern Munich',
-  '도르트문': 'Dortmund',
-  '파리생제': 'Paris Saint Germain', '파리': 'Paris Saint Germain',
-  '이강인': 'Paris Saint Germain', // 편의상
-  '김민재': 'Bayern Munich', // 편의상
-  '손흥민': 'Tottenham', // 편의상
-
   // --- [야구: MLB/KBO] ---
   '다저스': 'Los Angeles Dodgers',
   '양키스': 'New York Yankees',
   '샌디에이': 'San Diego Padres',
   '샌프란시': 'San Francisco Giants',
+  '토론토': 'Toronto Blue Jays',
+  '애틀랜타': 'Atlanta Braves',
+  '필라델피': 'Philadelphia Phillies',
+  '텍사스': 'Texas Rangers',
+  '휴스턴': 'Houston Astros',
   
   // 기본 국가 매핑
-  '대한민국': 'South Korea', '한국': 'South Korea',
-  '일본': 'Japan', '미국': 'USA'
+  '미국': 'USA'
 };
 
 const DEFAULT_CONTEXT = `(초보자 모드) 
@@ -155,28 +258,47 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
   const contextFileInputRef = useRef<HTMLInputElement>(null);
 
+  // [NEW] Helper to normalize and convert team names
+  const normalizeAndConvert = (name: string): string => {
+      const normalized = name.trim();
+      const noSpace = normalized.replace(/\s+/g, '');
+      return TEAM_MAPPINGS[normalized] || TEAM_MAPPINGS[noSpace] || normalized;
+  };
+
   const addToCart = () => {
     if (!homeTeam || !awayTeam) {
         setWarningMsg("팀 이름을 입력해주세요.");
         return;
     }
     
-    // [UPDATE] 한글 이름 추적
-    const homeKo = getKoreanName(homeTeam);
-    const awayKo = getKoreanName(awayTeam);
+    // [LOGIC UPDATE] Force conversion before adding to cart
+    const finalHome = normalizeAndConvert(homeTeam);
+    const finalAway = normalizeAndConvert(awayTeam);
+    
+    // [UPDATE] 한글 이름 추적 (원본이 한글이면 원본 사용, 아니면 역추적)
+    const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : getKoreanName(finalHome);
+    const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : getKoreanName(finalAway);
 
     const newItem: CartItem = {
         id: Date.now().toString(),
         sport,
-        homeTeam,
-        awayTeam,
-        homeTeamKo: homeKo, // optional
-        awayTeamKo: awayKo  // optional
+        homeTeam: finalHome,
+        awayTeam: finalAway,
+        homeTeamKo: homeKo, 
+        awayTeamKo: awayKo 
     };
+
     setCart([...cart, newItem]);
+    
+    // UI Update
+    if (finalHome !== homeTeam || finalAway !== awayTeam) {
+        setConversionMsg("영어 팀명으로 자동 변환되어 추가되었습니다.");
+    } else {
+        setConversionMsg("리스트에 추가되었습니다.");
+    }
+    
     setHomeTeam('');
     setAwayTeam('');
-    setConversionMsg("리스트에 추가되었습니다.");
     setTimeout(() => setConversionMsg(null), 3000);
   };
 
@@ -220,16 +342,17 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                       const matchKey = `${rawHome}-${rawAway}`;
                       if (addedMatchKeys.has(matchKey)) return;
 
-                      const mappedHome = TEAM_MAPPINGS[rawHome] || TEAM_MAPPINGS[rawHome.replace(/\s/g, '')] || rawHome;
-                      const mappedAway = TEAM_MAPPINGS[rawAway] || TEAM_MAPPINGS[rawAway.replace(/\s/g, '')] || rawAway;
+                      // [LOGIC UPDATE] Use normalizeAndConvert logic here too
+                      const mappedHome = normalizeAndConvert(rawHome);
+                      const mappedAway = normalizeAndConvert(rawAway);
                       
                       newItems.push({
                           id: Date.now().toString() + Math.random(),
                           sport: currentParsedSport,
                           homeTeam: mappedHome,
                           awayTeam: mappedAway,
-                          homeTeamKo: rawHome !== mappedHome ? rawHome : undefined, // [NEW] Store original if different
-                          awayTeamKo: rawAway !== mappedAway ? rawAway : undefined  // [NEW] Store original if different
+                          homeTeamKo: rawHome !== mappedHome ? rawHome : undefined, // Store original if different
+                          awayTeamKo: rawAway !== mappedAway ? rawAway : undefined  // Store original if different
                       });
                       
                       addedMatchKeys.add(matchKey);
@@ -306,13 +429,25 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     // [MODE 2] Single Analysis
     else if (mode === 'single') {
       if (!homeTeam || !awayTeam) return;
+
+      // [LOGIC UPDATE] Force conversion on submit (covers manual entry without blur)
+      const finalHome = normalizeAndConvert(homeTeam);
+      const finalAway = normalizeAndConvert(awayTeam);
+
+      // Update UI state to reflect conversion
+      if (finalHome !== homeTeam) setHomeTeam(finalHome);
+      if (finalAway !== awayTeam) setAwayTeam(finalAway);
+
+      // Determine Korean name for display
+      const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : getKoreanName(finalHome);
+      const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : getKoreanName(finalAway);
       
       onAnalyze({ 
         sport, 
-        homeTeam, 
-        awayTeam, 
-        homeTeamKo: getKoreanName(homeTeam), // [NEW] Pass Korean name
-        awayTeamKo: getKoreanName(awayTeam), // [NEW] Pass Korean name
+        homeTeam: finalHome, 
+        awayTeam: finalAway, 
+        homeTeamKo: homeKo,
+        awayTeamKo: awayKo,
         date, 
         context: context + (learnedCount > 0 ? `\n\n[System] 메모리에 저장된 ${learnedCount}개의 스타일을 참조하여 분석합니다.` : ""),
         trainingData: [],
@@ -366,8 +501,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const handleTeamBlur = (type: 'home' | 'away') => {
     const currentName = type === 'home' ? homeTeam : awayTeam;
     if (!currentName) return;
-    const normalizedInput = currentName.replace(/\s+/g, '').toLowerCase();
-    const converted = TEAM_MAPPINGS[normalizedInput];
+    
+    const converted = normalizeAndConvert(currentName);
+    
     if (converted && converted.toLowerCase() !== currentName.toLowerCase()) {
       if (type === 'home') setHomeTeam(converted);
       else setAwayTeam(converted);
