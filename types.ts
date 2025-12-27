@@ -58,10 +58,15 @@ export interface AnalyzedMatchItem {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
+export interface RecommendedCombination {
+  rank: number;
+  matches: AnalyzedMatchItem[];
+  totalReason: string;
+  expectedValue: string; // "High", "Medium" etc.
+}
+
 export interface BatchAnalysisResult {
   matches: AnalyzedMatchItem[];
-  recommendedCombination: {
-    matches: AnalyzedMatchItem[];
-    totalReason: string;
-  };
+  // [UPDATED] 다중 조합 지원을 위해 배열로 변경
+  recommendedCombinations: RecommendedCombination[]; 
 }

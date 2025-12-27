@@ -80,65 +80,56 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, groundingMet
   };
 
   // --- RENDER: BATCH RESULT MODE (Combination Recommender) ---
-  if (batchResult) {
+  if (batchResult && batchResult.recommendedCombinations) {
     return (
       <div className="w-full max-w-4xl mx-auto mt-8 space-y-8" ref={contentRef}>
          
-         {/* 1. 추천 조합 카드 */}
-         <div className="bg-gradient-to-br from-emerald-900 to-slate-900 border border-emerald-500 rounded-xl p-6 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 opacity-10">
-                <svg className="w-40 h-40 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            </div>
-            
-            <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
-                <span className="bg-emerald-500 text-emerald-950 text-xs px-2 py-1 rounded mr-3">AI PICK</span>
-                최고의 {batchResult.recommendedCombination.matches.length}폴더 조합
+         {/* 추천 조합 카드 리스트 (다중 조합 지원) */}
+         <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-white flex items-center mb-4">
+                <span className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white text-xs px-2 py-1 rounded mr-3">AI GENERATED</span>
+                AI 추천 조합 TOP {batchResult.recommendedCombinations.length}
             </h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 relative z-10">
-                {batchResult.recommendedCombination.matches.map((match, idx) => (
-                    <div key={idx} className="bg-slate-900/80 p-4 rounded-lg border border-emerald-500/30 flex justify-between items-center group shadow-md hover:bg-slate-800 transition-colors">
-                        <div className="flex-1">
-                            {/* [UPDATE] 팀 이름 가독성 강화 + 한글 이름 표시 */}
-                            <div className="text-base font-bold text-white mb-1.5 flex flex-wrap items-center gap-2">
-                                <div className="flex flex-col">
-                                    <span className="text-emerald-50">{match.homeTeam}</span>
-                                    {match.homeTeamKo && <span className="text-[10px] text-slate-400 font-normal">{match.homeTeamKo}</span>}
+            {batchResult.recommendedCombinations.map((combo, comboIdx) => (
+                <div key={comboIdx} className="bg-gradient-to-br from-slate-900 to-slate-800 border border-emerald-500/50 rounded-xl p-6 shadow-xl relative overflow-hidden group hover:border-emerald-400 transition-colors">
+                    <div className="absolute top-0 left-0 bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-br-lg shadow-md z-10">
+                        Rank {combo.rank} (EV: {combo.expectedValue})
+                    </div>
+                    
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
+                        {combo.matches.map((match, idx) => (
+                            <div key={idx} className="bg-slate-950/50 p-3 rounded-lg border border-slate-700/50 flex justify-between items-center">
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-bold text-white mb-1 flex items-center flex-wrap gap-2">
+                                        <div className="truncate text-emerald-50">{match.homeTeamKo || match.homeTeam}</div>
+                                        <span className="text-xs text-slate-500">vs</span>
+                                        <div className="truncate text-emerald-50">{match.awayTeamKo || match.awayTeam}</div>
+                                    </div>
+                                    <div className="text-lg font-extrabold text-emerald-400 tracking-wide">{match.prediction}</div>
                                 </div>
-                                <span className="text-xs text-slate-500 font-normal px-1">vs</span>
-                                <div className="flex flex-col">
-                                    <span className="text-emerald-50">{match.awayTeam}</span>
-                                    {match.awayTeamKo && <span className="text-[10px] text-slate-400 font-normal">{match.awayTeamKo}</span>}
+                                <div className="text-right pl-3 border-l border-slate-700/50 ml-3">
+                                     <div className="text-xs font-bold text-slate-400">{match.confidence}%</div>
+                                     <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded mt-1 inline-block ${
+                                        match.riskLevel === 'LOW' ? 'bg-emerald-900/80 text-emerald-300' : 'bg-yellow-900/80 text-yellow-300'
+                                     }`}>
+                                        {match.riskLevel}
+                                     </div>
                                 </div>
                             </div>
-                            <div className="text-xl font-extrabold text-emerald-400 tracking-wide">{match.prediction}</div>
-                        </div>
-                        <div className="text-right pl-4 border-l border-slate-700/50">
-                             <div className="text-sm font-bold text-white mb-1">{match.confidence}% 확신</div>
-                             <div className="flex flex-col items-end gap-1.5">
-                                <span className="text-[10px] font-bold bg-emerald-900/80 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-800">
-                                    RISK: {match.riskLevel}
-                                </span>
-                                <button 
-                                    onClick={() => onSelectMatch && onSelectMatch(match.homeTeam, match.awayTeam, 'football')} 
-                                    className="text-xs bg-slate-700 hover:bg-emerald-600 text-slate-200 hover:text-white px-2 py-1 rounded transition-colors flex items-center border border-slate-600"
-                                >
-                                    🔍 정밀분석
-                                </button>
-                             </div>
-                        </div>
+                        ))}
                     </div>
-                ))}
-            </div>
-            
-            <div className="bg-emerald-950/50 p-4 rounded-lg border border-emerald-800 text-emerald-100 text-sm leading-relaxed relative z-10">
-                <strong>💡 추천 이유:</strong> {batchResult.recommendedCombination.totalReason}
-            </div>
+                    
+                    <div className="mt-4 bg-emerald-950/30 p-3 rounded-lg border border-emerald-500/20 text-emerald-100 text-xs leading-relaxed">
+                        <strong>💡 추천 이유:</strong> {combo.totalReason}
+                    </div>
+                </div>
+            ))}
          </div>
 
          {/* 2. 전체 분석 리스트 (등급표) */}
          <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
-            <h3 className="text-lg font-bold text-slate-200 mb-4">전체 분석 결과 등급표</h3>
+            <h3 className="text-lg font-bold text-slate-200 mb-4">전체 분석 결과 (Pool)</h3>
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left text-slate-300">
                     <thead className="text-xs text-slate-400 uppercase bg-slate-700/50">

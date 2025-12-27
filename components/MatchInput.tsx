@@ -5,7 +5,7 @@ import { MatchData, SportType, TrainingSample, CartItem } from '../types';
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
   onLearn: (samples: TrainingSample[]) => void;
-  onRecommend?: (items: CartItem[], folderCount: number, useAutoSearch: boolean) => void;
+  onRecommend?: (items: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean) => void;
   learnedCount: number;
   isLoading: boolean;
   previousAnalysis?: string | null;
@@ -13,10 +13,29 @@ interface MatchInputProps {
 
 // [MAPPING UPDATE] 배트맨/토토 용어 및 주요 팀 매핑 데이터 대폭 확장 (API-Sports 공식 명칭 기준)
 const TEAM_MAPPINGS: Record<string, string> = {
-  // --- [축구: 영국 2부 (EFL 챔피언십) 및 하부] ---
-  // * API 검색 성공률을 위해 City, United, Town, FC 등 풀네임 사용 필수
+  // --- [잉글랜드: EPL/EFL] ---
+  '토트넘': 'Tottenham Hotspur',
+  '맨시티': 'Manchester City', '맨체스C': 'Manchester City', '맨체스터시티': 'Manchester City',
+  '맨유': 'Manchester United', '맨체스U': 'Manchester United', '맨체스터유나이티드': 'Manchester United',
+  '리버풀': 'Liverpool',
+  '아스날': 'Arsenal', '아스널': 'Arsenal',
+  '첼시': 'Chelsea',
+  '울버햄튼': 'Wolverhampton Wanderers', '울버햄프': 'Wolverhampton Wanderers',
+  '아스톤빌': 'Aston Villa', '아스톤': 'Aston Villa', 'A빌라': 'Aston Villa',
+  '뉴캐슬': 'Newcastle United',
+  '브라이튼': 'Brighton & Hove Albion', '브라이턴': 'Brighton & Hove Albion',
+  '웨스트햄': 'West Ham United',
+  '에버튼': 'Everton', '에버턴': 'Everton',
+  '노팅엄': 'Nottingham Forest', '노팅엄포': 'Nottingham Forest',
+  '풀럼': 'Fulham',
+  '크리스탈': 'Crystal Palace', '팰리스': 'Crystal Palace', '크리스털': 'Crystal Palace',
+  '브렌트퍼': 'Brentford', '브렌트': 'Brentford',
+  '본머스': 'Bournemouth', 'AFC본머스': 'Bournemouth',
+  '루턴타운': 'Luton Town',
+  '셰필드': 'Sheffield United', '셰필드U': 'Sheffield United',
+  '번리': 'Burnley',
   '레스터C': 'Leicester City', '레스터': 'Leicester City',
-  '리즈': 'Leeds United',
+  '리즈': 'Leeds United', '리즈U': 'Leeds United',
   '사우스햄': 'Southampton', '사우스햄튼': 'Southampton', '사우샘프': 'Southampton',
   '입스위치': 'Ipswich Town',
   '노리치C': 'Norwich City', '노리치': 'Norwich City',
@@ -50,52 +69,163 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '위건': 'Wigan Athletic',
   '레딩': 'Reading',
 
-  // --- [축구: EPL 및 해외축구 주요 팀] ---
-  '토트넘': 'Tottenham Hotspur',
-  '맨시티': 'Manchester City',
-  '맨유': 'Manchester United',
-  '리버풀': 'Liverpool',
-  '아스날': 'Arsenal',
-  '첼시': 'Chelsea',
-  '울버햄튼': 'Wolverhampton Wanderers',
-  '아스톤빌': 'Aston Villa', '아스톤': 'Aston Villa',
-  '뉴캐슬': 'Newcastle United',
-  '브라이튼': 'Brighton & Hove Albion',
-  '웨스트햄': 'West Ham United',
-  '에버튼': 'Everton',
-  '노팅엄': 'Nottingham Forest',
-  '풀럼': 'Fulham',
-  '크리스탈': 'Crystal Palace', '팰리스': 'Crystal Palace',
-  '브렌트퍼': 'Brentford', '브렌트': 'Brentford',
-  '본머스': 'Bournemouth', 'AFC본머스': 'Bournemouth',
-  '루턴타운': 'Luton Town',
-  '셰필드': 'Sheffield United', '셰필드U': 'Sheffield United',
-  '번리': 'Burnley',
+  // --- [스페인: 라리가] ---
   '레알마드': 'Real Madrid', '레알': 'Real Madrid',
   '바르셀로': 'Barcelona', '바르사': 'Barcelona',
   '아틀레티': 'Atletico Madrid', 'AT마드리드': 'Atletico Madrid',
   '세비야': 'Sevilla',
   '발렌시아': 'Valencia',
   '지로나': 'Girona',
-  '빌바오': 'Athletic Club',
-  '뮌헨': 'Bayern Munich', '바이에른': 'Bayern Munich',
-  '도르트문': 'Borussia Dortmund',
+  '빌바오': 'Athletic Club', '아틀레틱': 'Athletic Club',
+  '소시에다': 'Real Sociedad', 'R소시에': 'Real Sociedad',
+  '베티스': 'Real Betis',
+  '비야레알': 'Villarreal',
+  '셀타비고': 'Celta Vigo',
+  '오사수나': 'Osasuna',
+  '헤타페': 'Getafe',
+  '마요르카': 'Mallorca',
+  '라요': 'Rayo Vallecano',
+  '알라베스': 'Alaves',
+  '라스팔마': 'Las Palmas',
+  '카디스': 'Cadiz',
+  '그라나다': 'Granada',
+  '알메리아': 'Almeria',
+
+  // --- [이탈리아: 세리에 A/B] ---
+  '인터밀란': 'Inter Milan', '인테르': 'Inter Milan',
+  'AC밀란': 'AC Milan',
+  '유벤투스': 'Juventus',
+  '나폴리': 'Napoli',
+  '로마': 'AS Roma', 'AS로마': 'AS Roma',
+  '라치오': 'Lazio',
+  '아탈란타': 'Atalanta',
+  '피오렌티': 'Fiorentina', '피오렌티나': 'Fiorentina',
+  '볼로냐': 'Bologna',
+  '토리노': 'Torino',
+  '몬차': 'Monza',
+  '제노아': 'Genoa',
+  '레체': 'Lecce', 'US레체': 'Lecce',
+  '우디네세': 'Udinese',
+  '베로나': 'Hellas Verona', '엘라스': 'Hellas Verona', '헬라스': 'Hellas Verona',
+  '엠폴리': 'Empoli',
+  '사수올로': 'Sassuolo',
+  '프로시노': 'Frosinone',
+  '살레르니': 'Salernitana',
+  '칼리아리': 'Cagliari',
+  '파르마': 'Parma',
+  '코모': 'Como', '코모1907': 'Como',
+  '베네치아': 'Venezia',
+  '크레모네': 'Cremonese',
+  '피사': 'Pisa', '피사SC': 'Pisa',
+  '팔레르모': 'Palermo',
+  '삼프도리': 'Sampdoria',
+  '스페치아': 'Spezia',
+  '바리': 'Bari',
+  '브레시아': 'Brescia',
+  '코센차': 'Cosenza',
+  '모데나': 'Modena',
+  '레지아나': 'Reggiana',
+  '수트티롤': 'Sudtirol',
+  '치타델라': 'Cittadella',
+  '카탄차로': 'Catanzaro',
+
+  // --- [독일: 분데스리가] ---
+  '뮌헨': 'Bayern Munich', '바이에른': 'Bayern Munich', '바이에른뮌헨': 'Bayern Munich',
+  '도르트문': 'Borussia Dortmund', '도르트': 'Borussia Dortmund',
   '레버쿠젠': 'Bayer Leverkusen',
   '라이프치': 'RB Leipzig',
   '슈투트가': 'VfB Stuttgart',
+  '프랑크푸': 'Eintracht Frankfurt',
+  '호펜하임': 'Hoffenheim',
+  '프라이부': 'SC Freiburg',
+  '브레멘': 'Werder Bremen', '베르더': 'Werder Bremen',
+  '아우크스': 'Augsburg',
+  '볼프스부': 'Wolfsburg',
+  '묀헨글라': 'Borussia Monchengladbach', '글라트바': 'Borussia Monchengladbach',
+  '우니온': 'Union Berlin', '유니온': 'Union Berlin',
+  '마인츠': 'Mainz 05',
+  '쾰른': 'FC Koln',
+  '다름슈타': 'Darmstadt 98',
+  '보훔': 'VfL Bochum',
+  '하이덴하': 'Heidenheim',
+  '상파울리': 'St. Pauli',
+  '홀슈타인': 'Holstein Kiel',
+
+  // --- [프랑스: 리그 1] ---
   '파리생제': 'Paris Saint Germain', '파리': 'Paris Saint Germain', 'PSG': 'Paris Saint Germain',
   '모나코': 'AS Monaco',
   '마르세유': 'Marseille',
   '릴': 'Lille',
   '리옹': 'Lyon',
-  '인터밀란': 'Inter Milan',
-  'AC밀란': 'AC Milan',
-  '유벤투스': 'Juventus',
-  '나폴리': 'Napoli',
-  '로마': 'AS Roma',
-  '라치오': 'Lazio',
-  '아탈란타': 'Atalanta',
-  '피오렌티': 'Fiorentina',
+  '랑스': 'Lens',
+  '니스': 'Nice',
+  '렌': 'Rennes',
+  '랭스': 'Reims',
+  '툴루즈': 'Toulouse',
+  '스트라스': 'Strasbourg',
+  '몽펠리에': 'Montpellier',
+  '낭트': 'Nantes',
+  '르아브르': 'Le Havre',
+  '메스': 'Metz',
+  '로리앙': 'Lorient',
+  '클레르몽': 'Clermont Foot',
+  '브레스트': 'Brest',
+  '오세르': 'Auxerre',
+  '앙제': 'Angers',
+  '생테티엔': 'Saint-Etienne',
+
+  // --- [네덜란드: 에레디비시] ---
+  '에인트호': 'PSV Eindhoven', 'PSV': 'PSV Eindhoven',
+  '페예노르': 'Feyenoord',
+  '아약스': 'Ajax',
+  '알크마르': 'AZ Alkmaar',
+  '트벤테': 'Twente',
+  '위트레흐': 'Utrecht',
+  '헤이렌베': 'Heerenveen',
+  '고어헤드': 'Go Ahead Eagles',
+  '시타르트': 'Fortuna Sittard',
+  '발베이크': 'RKC Waalwijk',
+  '즈볼러': 'PEC Zwolle',
+  '알메러C': 'Almere City', '알메러': 'Almere City',
+  'NEC네이': 'NEC Nijmegen',
+  '스파르타': 'Sparta Rotterdam',
+  '헤라클레': 'Heracles',
+
+  // --- [일본: J리그] ---
+  '감바오사': 'Gamba Osaka',
+  '가와사키': 'Kawasaki Frontale',
+  '우라와': 'Urawa Red Diamonds',
+  '요코하마M': 'Yokohama F. Marinos',
+  '비셀고베': 'Vissel Kobe',
+  '산프히로': 'Sanfrecce Hiroshima',
+  '가시마': 'Kashima Antlers',
+  'FC도쿄': 'FC Tokyo',
+  '마치다': 'Machida Zelvia',
+  'C오사카': 'Cerezo Osaka',
+  '나고야': 'Nagoya Grampus',
+  '가시와': 'Kashiwa Reysol',
+  '교토상가': 'Kyoto Sanga',
+  '알비니가': 'Albirex Niigata',
+  '쇼난': 'Shonan Bellmare',
+  '주빌로': 'Jubilo Iwata',
+  '삿포로': 'Consadole Sapporo',
+  '사간도스': 'Sagan Tosu',
+  '도쿄베르': 'Tokyo Verdy',
+  '후쿠오카': 'Avispa Fukuoka',
+
+  // --- [호주: A리그] ---
+  '애들유나': 'Adelaide United',
+  '웨스원더': 'Western Sydney Wanderers',
+  '멜버른빅': 'Melbourne Victory',
+  '멜버른시': 'Melbourne City', '멜버시티': 'Melbourne City',
+  '센트럴코': 'Central Coast Mariners',
+  '맥아서FC': 'Macarthur FC',
+  '브리즈번': 'Brisbane Roar',
+  '퍼스글로': 'Perth Glory',
+  '뉴캐슬제': 'Newcastle Jets',
+  '웰링턴': 'Wellington Phoenix',
+  '웨스턴유': 'Western United',
+  '오클랜드': 'Auckland FC',
   
   // --- [축구: 국가대표] ---
   '대한민국': 'South Korea', '한국': 'South Korea',
@@ -124,6 +254,9 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '니제르': 'Niger',
   '르완다': 'Rwanda',
   '베냉': 'Benin',
+  '보츠와나': 'Botswana',
+  '적도기니': 'Equatorial Guinea',
+  '마다가스': 'Madagascar',
   '리비아': 'Libya',
   '알제리': 'Algeria',
   '부르키나': 'Burkina Faso', '부르키나파소': 'Burkina Faso',
@@ -133,7 +266,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '말리': 'Mali',
   '남아공': 'South Africa',
   '모로코': 'Morocco',
-  '콩고민주': 'DR Congo',
+  '콩고민주': 'DR Congo', '콩고DR': 'DR Congo',
   '잠비아': 'Zambia',
   '탄자니아': 'Tanzania',
   '코트디부': 'Ivory Coast',
@@ -142,6 +275,39 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '가나': 'Ghana',
   '카메룬': 'Cameroon',
   '세네갈': 'Senegal',
+  '가봉': 'Gabon',
+  '모잠비크': 'Mozambique',
+  '감비아': 'Gambia',
+  '중앙아프': 'Central African Republic',
+  '기니': 'Guinea',
+  '기니비사': 'Guinea-Bissau',
+  '에스와티': 'Eswatini',
+  '토고': 'Togo',
+  '라이베리': 'Liberia',
+  '시에라리': 'Sierra Leone',
+  '차드': 'Chad',
+  '레소토': 'Lesotho',
+  '우간다': 'Uganda',
+  '에티오피': 'Ethiopia',
+  '아르헨티': 'Argentina',
+  '브라질': 'Brazil',
+  '우루과이': 'Uruguay',
+  '콜롬비아': 'Colombia',
+  '칠레': 'Chile',
+  '페루': 'Peru',
+  '에콰도르': 'Ecuador',
+  '볼리비아': 'Bolivia',
+  '베네수엘': 'Venezuela',
+  '파라과이': 'Paraguay',
+  '프랑스': 'France',
+  '독일': 'Germany',
+  '스페인': 'Spain',
+  '잉글랜드': 'England',
+  '이탈리아': 'Italy',
+  '네덜란드': 'Netherlands',
+  '포르투갈': 'Portugal',
+  '벨기에': 'Belgium',
+  '크로아티': 'Croatia',
 
   // --- [농구: NBA] ---
   '뉴욕닉스': 'New York Knicks',
@@ -226,11 +392,10 @@ const DEFAULT_CONTEXT = `(초보자 모드)
 
 // [NEW] Helper to find Korean name from English name
 const getKoreanName = (englishName: string): string | undefined => {
-    // Reverse lookup: find the first key that maps to this English name and is Korean
     const foundKey = Object.keys(TEAM_MAPPINGS).find(key => 
         TEAM_MAPPINGS[key].toLowerCase() === englishName.toLowerCase() && /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(key)
     );
-    return foundKey; // Returns undefined if not found
+    return foundKey; 
 };
 
 const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend, learnedCount, isLoading, previousAnalysis }) => {
@@ -242,14 +407,12 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const [context, setContext] = useState(DEFAULT_CONTEXT);
   const [autoSearch, setAutoSearch] = useState(true); 
   
-  // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [pasteInput, setPasteInput] = useState('');
   const [showPasteArea, setShowPasteArea] = useState(false);
   const [folderCount, setFolderCount] = useState<number>(2);
+  const [recommendationCount, setRecommendationCount] = useState<number>(1); // [NEW] 추천 조합 개수
 
-  // Learning & Synthesis State
-  const [selectedTrainingFiles, setSelectedTrainingFiles] = useState<TrainingSample[]>([]);
   const [fileWithContext, setFileWithContext] = useState<File | null>(null);
   const [fileNoContext, setFileNoContext] = useState<File | null>(null);
   const [fileContent1, setFileContent1] = useState<string>('');
@@ -258,10 +421,10 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
   const contextFileInputRef = useRef<HTMLInputElement>(null);
 
-  // [NEW] Helper to normalize and convert team names
   const normalizeAndConvert = (name: string): string => {
       const normalized = name.trim();
       const noSpace = normalized.replace(/\s+/g, '');
+      // Check full match, then no-space match, then return original
       return TEAM_MAPPINGS[normalized] || TEAM_MAPPINGS[noSpace] || normalized;
   };
 
@@ -271,11 +434,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         return;
     }
     
-    // [LOGIC UPDATE] Force conversion before adding to cart
     const finalHome = normalizeAndConvert(homeTeam);
     const finalAway = normalizeAndConvert(awayTeam);
     
-    // [UPDATE] 한글 이름 추적 (원본이 한글이면 원본 사용, 아니면 역추적)
     const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : getKoreanName(finalHome);
     const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : getKoreanName(finalAway);
 
@@ -290,7 +451,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
 
     setCart([...cart, newItem]);
     
-    // UI Update
     if (finalHome !== homeTeam || finalAway !== awayTeam) {
         setConversionMsg("영어 팀명으로 자동 변환되어 추가되었습니다.");
     } else {
@@ -330,34 +490,38 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
           if (cleanLine.includes(':')) {
               const parts = cleanLine.split(':');
               
-              if (/^\d{1,2}$/.test(parts[0].trim())) {
-                  return;
-              }
-
               if (parts.length === 2) {
-                  let rawHome = parts[0].trim();
-                  let rawAway = parts[1].trim();
-                  
-                  if (rawHome.length > 1 && rawAway.length > 1 && isNaN(Number(rawHome))) {
-                      const matchKey = `${rawHome}-${rawAway}`;
-                      if (addedMatchKeys.has(matchKey)) return;
+                  let rawHome = parts[0];
+                  let rawAway = parts[1];
 
-                      // [LOGIC UPDATE] Use normalizeAndConvert logic here too
-                      const mappedHome = normalizeAndConvert(rawHome);
-                      const mappedAway = normalizeAndConvert(rawAway);
-                      
-                      newItems.push({
-                          id: Date.now().toString() + Math.random(),
-                          sport: currentParsedSport,
-                          homeTeam: mappedHome,
-                          awayTeam: mappedAway,
-                          homeTeamKo: rawHome !== mappedHome ? rawHome : undefined, // Store original if different
-                          awayTeamKo: rawAway !== mappedAway ? rawAway : undefined  // Store original if different
-                      });
-                      
-                      addedMatchKeys.add(matchKey);
-                      addedCount++;
-                  }
+                  const cleanRegex = /(\d{1,2}\/\d{1,2})|(\d{1,2}:\d{1,2})|(\(N\))|(\[H\])/g;
+                  
+                  rawHome = rawHome.replace(cleanRegex, '').trim();
+                  rawHome = rawHome.replace(/^\d+\s+/, '').trim();
+                  rawHome = rawHome.replace(/\s+\d+$/, '').trim();
+
+                  rawAway = rawAway.replace(cleanRegex, '').trim();
+                  rawAway = rawAway.replace(/\s+[\d.]+$/, '').trim();
+                  
+                  if (!rawHome || !rawAway || /^\d+$/.test(rawHome)) return;
+
+                  const matchKey = `${rawHome}-${rawAway}`;
+                  if (addedMatchKeys.has(matchKey)) return;
+
+                  const mappedHome = normalizeAndConvert(rawHome);
+                  const mappedAway = normalizeAndConvert(rawAway);
+                  
+                  newItems.push({
+                      id: Date.now().toString() + Math.random(),
+                      sport: currentParsedSport,
+                      homeTeam: mappedHome,
+                      awayTeam: mappedAway,
+                      homeTeamKo: rawHome !== mappedHome ? rawHome : undefined, 
+                      awayTeamKo: rawAway !== mappedAway ? rawAway : undefined 
+                  });
+                  
+                  addedMatchKeys.add(matchKey);
+                  addedCount++;
               }
           }
       });
@@ -369,7 +533,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
           setShowPasteArea(false);
           setTimeout(() => setConversionMsg(null), 3000);
       } else {
-          setWarningMsg("유효한 경기 정보를 찾지 못했습니다. 복사한 텍스트 형식을 확인해주세요.");
+          setWarningMsg("유효한 경기 정보를 찾지 못했습니다. 텍스트 형식을 확인해주세요.");
       }
   };
 
@@ -418,27 +582,23 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     e.preventDefault();
     if (isLoading) return;
 
-    // [MODE 1] Combination Recommender
     if (mode === 'cart') {
         if (cart.length < 2) {
             alert("최소 2경기 이상 리스트에 담아야 조합을 추천할 수 있습니다.");
             return;
         }
-        if (onRecommend) onRecommend(cart, folderCount, autoSearch);
+        // [UPDATED] Pass recommendationCount
+        if (onRecommend) onRecommend(cart, folderCount, recommendationCount, autoSearch);
     } 
-    // [MODE 2] Single Analysis
     else if (mode === 'single') {
       if (!homeTeam || !awayTeam) return;
 
-      // [LOGIC UPDATE] Force conversion on submit (covers manual entry without blur)
       const finalHome = normalizeAndConvert(homeTeam);
       const finalAway = normalizeAndConvert(awayTeam);
 
-      // Update UI state to reflect conversion
       if (finalHome !== homeTeam) setHomeTeam(finalHome);
       if (finalAway !== awayTeam) setAwayTeam(finalAway);
 
-      // Determine Korean name for display
       const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : getKoreanName(finalHome);
       const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : getKoreanName(finalAway);
       
@@ -454,7 +614,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         useAutoSearch: autoSearch
       });
     } 
-    // [MODE 3] Synthesis
     else {
       if (!fileContent1 || !fileContent2) {
         alert("두 개의 분석 파일(맥락 포함/미포함)을 모두 업로드해주세요.");
@@ -593,8 +752,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         </div>
         )}
 
-        {/* --- DYNAMIC MODE CONTENT --- */}
-
         {mode === 'cart' && (
             <div className="mb-4">
                   {!showPasteArea ? (
@@ -615,7 +772,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                           <textarea
                             value={pasteInput}
                             onChange={(e) => setPasteInput(e.target.value)}
-                            placeholder={`예시:\n농구\n울산모비 : 고양소노\n...`}
+                            placeholder={`예시:\n12/17 23:00 30 애들유나 : 웨스원더\n...`}
                             className="w-full bg-slate-800 text-slate-300 text-xs p-3 rounded h-32 focus:outline-none focus:border-indigo-500 mb-3"
                           />
                           <button
@@ -630,7 +787,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
 
                   <div className="mt-4">
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                         {/* Manual input for cart */}
                         <input
                           type="text"
                           value={homeTeam}
@@ -658,22 +814,38 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                         + 리스트에 추가
                      </button>
 
-                     {/* Folder Selection */}
-                     <div className="flex items-center justify-end mb-2 space-x-2">
-                        <label className="text-xs text-slate-400 font-bold">🎯 조합 수 선택:</label>
-                        <select 
-                            value={folderCount}
-                            onChange={(e) => setFolderCount(Number(e.target.value))}
-                            className="bg-slate-900 border border-emerald-600 text-emerald-400 text-xs rounded px-2 py-1 font-bold focus:outline-none"
-                        >
-                            <option value={2}>2폴더 (안전 위주)</option>
-                            <option value={3}>3폴더 (밸런스)</option>
-                            <option value={4}>4폴더 (고배당 도전)</option>
-                            <option value={5}>5폴더 (로또픽)</option>
-                        </select>
+                     <div className="flex items-center justify-end mb-2 space-x-4 bg-slate-900/50 p-3 rounded-lg border border-slate-700">
+                        <div className="flex items-center space-x-2">
+                            <label className="text-xs text-slate-400 font-bold">🎯 폴더(조합) 크기:</label>
+                            <select 
+                                value={folderCount}
+                                onChange={(e) => setFolderCount(Number(e.target.value))}
+                                className="bg-slate-900 border border-emerald-600 text-emerald-400 text-xs rounded px-2 py-1 font-bold focus:outline-none"
+                            >
+                                <option value={2}>2폴더 (안전)</option>
+                                <option value={3}>3폴더 (밸런스)</option>
+                                <option value={4}>4폴더 (도전)</option>
+                                <option value={5}>5폴더 (로또)</option>
+                            </select>
+                        </div>
+                        
+                        {/* [NEW] 4경기 이상일 때만 추천 조합 개수(베팅 숫자) 선택 가능 */}
+                        {cart.length >= 4 && (
+                            <div className="flex items-center space-x-2 animate-fade-in">
+                                <label className="text-xs text-blue-400 font-bold">🎫 베팅(조합) 개수:</label>
+                                <select 
+                                    value={recommendationCount}
+                                    onChange={(e) => setRecommendationCount(Number(e.target.value))}
+                                    className="bg-slate-900 border border-blue-600 text-blue-400 text-xs rounded px-2 py-1 font-bold focus:outline-none"
+                                >
+                                    {[1, 2, 3, 4, 5].map(num => (
+                                        <option key={num} value={num}>{num}개 조합 생성</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                      </div>
 
-                     {/* Cart List */}
                      <div className="bg-slate-900/80 rounded-lg p-4 min-h-[100px] border border-slate-700">
                         <h3 className="text-xs text-slate-400 font-bold mb-2 uppercase tracking-wider flex justify-between">
                             <span>분석 대기 리스트 ({cart.length})</span>
@@ -801,7 +973,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
           </div>
         )}
 
-        {/* --- GLOBAL SEARCH OPTION --- */}
         <div className="flex justify-end pt-2">
             <label className="flex items-center space-x-2 cursor-pointer bg-slate-900/80 px-3 py-2 rounded-lg border border-slate-700 hover:border-emerald-500 transition-colors">
                 <input 
@@ -833,7 +1004,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
             </span>
           ) : (
             mode === 'cart' 
-             ? `🚀 ${cart.length}경기 중 최고의 ${folderCount}폴더 조합 추천받기`
+             ? `🚀 ${cart.length}경기 중 최고의 ${folderCount}폴더 조합 ${recommendationCount > 1 ? `x ${recommendationCount}개` : ''} 추천받기`
              : (mode === 'single' ? '⚽ 정밀 분석 시작' : '📂 종합 분석 실행')
           )}
         </button>

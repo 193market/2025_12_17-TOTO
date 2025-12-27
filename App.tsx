@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import MatchInput from './components/MatchInput';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import { analyzeMatch, recommendCombination } from './services/geminiService';
@@ -16,6 +16,10 @@ const App: React.FC = () => {
   });
 
   const [learnedSamples, setLearnedSamples] = useState<TrainingSample[]>([]);
+  // [NEW] Key to force re-render of MatchInput on reset
+  const [resetKey, setResetKey] = useState(0);
+  // [NEW] AbortController ref
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -52,45 +56,103 @@ const App: React.FC = () => {
     }
   };
 
+  // [NEW] 앱 초기화 핸들러 (홈 버튼)
+  const handleReset = () => {
+      // 진행 중인 분석 중지
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+      }
+      
+      // 결과 상태 초기화
+      setAnalysisState({
+          isLoading: false,
+          data: null,
+          error: null,
+          batchResult: null,
+      });
+
+      // 입력 폼 초기화 (키 변경으로 컴포넌트 재생성)
+      setResetKey(prev => prev + 1);
+  };
+
+  // [NEW] 분석 중지 핸들러
+  const handleStopAnalysis = () => {
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+          setAnalysisState(prev => ({
+              ...prev,
+              isLoading: false,
+              error: "사용자에 의해 분석이 중지되었습니다."
+          }));
+      }
+  };
+
   // 기존 단일/종합 분석 핸들러
   const handleAnalyze = async (data: MatchData) => {
     if (!apiKey) {
       setAnalysisState({ isLoading: false, data: null, error: "API 키가 누락되었습니다. 환경 변수 설정을 확인해주세요." });
       return;
     }
+    
+    // 이전 요청 취소 및 새 컨트롤러 생성
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+
     setAnalysisState({ isLoading: true, data: "", error: null, batchResult: null });
 
     try {
       const relevantSamples = learnedSamples.filter(sample => sample.sport === 'general' || sample.sport === data.sport).map(sample => sample.content);
       const finalMatchData: MatchData = { ...data, trainingData: [...relevantSamples, ...(data.trainingData || [])] };
 
-      const result = await analyzeMatch(finalMatchData, apiKey, (chunkText) => {
-         setAnalysisState(prev => ({ ...prev, data: (prev.data || "") + chunkText }));
-      });
+      const result = await analyzeMatch(
+          finalMatchData, 
+          apiKey, 
+          (chunkText) => {
+             setAnalysisState(prev => ({ ...prev, data: (prev.data || "") + chunkText }));
+          },
+          abortControllerRef.current.signal // [NEW] Pass signal
+      );
 
       setAnalysisState(prev => ({ isLoading: false, data: result.text || prev.data || "분석 결과가 없습니다.", groundingMetadata: result.groundingMetadata, error: null, batchResult: null }));
 
     } catch (err: any) {
+      if (err.message === "사용자에 의해 분석이 중지되었습니다.") return;
       setAnalysisState({ isLoading: false, data: null, error: err.message || "분석 중 예기치 않은 오류가 발생했습니다." });
     }
   };
 
-  // [UPDATED] 조합 추천 핸들러 (useAutoSearch 추가)
-  const handleRecommend = async (cartItems: CartItem[], folderCount: number, useAutoSearch: boolean) => {
+  // [UPDATED] 조합 추천 핸들러 (recommendationCount 추가)
+  const handleRecommend = async (cartItems: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean) => {
      if (!apiKey) {
        setAnalysisState({ isLoading: false, data: null, error: "API 키가 누락되었습니다." });
        return;
      }
-     setAnalysisState({ isLoading: true, data: `${folderCount}폴더 조합 분석을 시작합니다... (자동 검색: ${useAutoSearch ? 'ON' : 'OFF'})`, error: null, batchResult: null });
+
+     // 이전 요청 취소 및 새 컨트롤러 생성
+     if (abortControllerRef.current) abortControllerRef.current.abort();
+     abortControllerRef.current = new AbortController();
+
+     setAnalysisState({ isLoading: true, data: `${folderCount}폴더 조합(${recommendationCount}개 SET) 분석을 시작합니다... (자동 검색: ${useAutoSearch ? 'ON' : 'OFF'})`, error: null, batchResult: null });
 
      try {
-       const result = await recommendCombination(cartItems, apiKey, (statusMsg) => {
-           setAnalysisState(prev => ({ ...prev, data: statusMsg })); // 상태 메시지 표시
-       }, folderCount, useAutoSearch);
+       const result = await recommendCombination(
+           cartItems, 
+           apiKey, 
+           (statusMsg) => {
+               setAnalysisState(prev => ({ ...prev, data: statusMsg })); // 상태 메시지 표시
+           }, 
+           folderCount, 
+           recommendationCount, // [NEW] Pass count
+           useAutoSearch,
+           abortControllerRef.current.signal // [NEW] Pass signal
+       );
        
        setAnalysisState({ isLoading: false, data: null, batchResult: result, error: null });
 
      } catch (err: any) {
+       if (err.message === "사용자에 의해 분석이 중지되었습니다.") return;
        setAnalysisState({ isLoading: false, data: null, error: err.message });
      }
   };
@@ -114,12 +176,17 @@ const App: React.FC = () => {
       <nav className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center space-x-3">
-              <div className="bg-emerald-500 p-2 rounded-lg">
+            {/* [UPDATE] Clickable Home Button */}
+            <button 
+                onClick={handleReset}
+                className="flex items-center space-x-3 hover:opacity-80 transition-opacity focus:outline-none group"
+                title="처음으로 돌아가기 (새로운 분석)"
+            >
+              <div className="bg-emerald-500 p-2 rounded-lg group-hover:bg-emerald-400 transition-colors">
                 <svg className="w-6 h-6 text-slate-950" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">MatchInsight AI</span>
-            </div>
+              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400 group-hover:from-emerald-300 group-hover:to-cyan-300">MatchInsight AI</span>
+            </button>
             <div className="hidden md:flex items-center space-x-4">
                {learnedSamples.length > 0 && (
                  <button onClick={handleClearLearning} className="text-xs text-slate-500 hover:text-red-400 transition-colors">학습 데이터 초기화 ({learnedSamples.length})</button>
@@ -136,6 +203,19 @@ const App: React.FC = () => {
           <p className="text-lg text-slate-400 max-w-2xl mx-auto">API-Sports의 실시간 데이터와 Gemini의 추론 능력을 결합하여 축구, 농구, 야구 등 다양한 경기의 역학을 해석합니다.</p>
         </div>
 
+        {/* [STOP BUTTON UI] - Only when loading */}
+        {analysisState.isLoading && (
+            <div className="fixed bottom-8 right-8 z-50 animate-bounce">
+                <button 
+                    onClick={handleStopAnalysis}
+                    className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-full shadow-lg border-2 border-red-400 flex items-center gap-2 transform transition-transform hover:scale-105"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    분석 중지 (STOP)
+                </button>
+            </div>
+        )}
+
         {analysisState.error && (
           <div className="max-w-2xl mx-auto mb-6 bg-red-900/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg flex items-center animate-pulse">
             <svg className="w-5 h-5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -144,7 +224,9 @@ const App: React.FC = () => {
         )}
 
         <div className="mb-12">
+          {/* [UPDATE] key prop for resetting component state */}
           <MatchInput 
+            key={resetKey}
             onAnalyze={handleAnalyze} 
             onRecommend={handleRecommend}
             onLearn={handleLearn} 

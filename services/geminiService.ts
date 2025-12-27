@@ -87,7 +87,8 @@ async function generateWithRetry(ai: GoogleGenAI, params: any, maxRetries = 5) {
 export const analyzeMatch = async (
   matchData: MatchData, 
   apiKey: string,
-  onStreamChunk?: (text: string) => void
+  onStreamChunk?: (text: string) => void,
+  signal?: AbortSignal // [NEW] Stop signal
 ) => {
   if (!apiKey) throw new Error("API 키가 필요합니다.");
 
@@ -126,6 +127,9 @@ export const analyzeMatch = async (
       let fullText = "";
       let finalGroundingMetadata = null;
       for await (const chunk of responseStream) {
+        if (signal?.aborted) {
+           throw new Error("사용자에 의해 분석이 중지되었습니다.");
+        }
         if (chunk.text) {
           fullText += chunk.text;
           if (onStreamChunk) onStreamChunk(chunk.text);
@@ -136,6 +140,7 @@ export const analyzeMatch = async (
       }
       return { text: fullText, groundingMetadata: finalGroundingMetadata, rawData: null };
     } catch (error: any) {
+      if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
       throw new Error("분석 종합 중 오류가 발생했습니다: " + error.message);
     }
   }
@@ -145,11 +150,15 @@ export const analyzeMatch = async (
   let dataFetchError = null;
   
   try {
+    if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
     sportsData = await getMatchContextData(matchData.sport, matchData.homeTeam, matchData.awayTeam);
   } catch (e: any) {
+    if (signal?.aborted) throw e;
     console.warn("Sports API 가져오기 오류:", e);
     dataFetchError = e.message;
   }
+
+  if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
 
   let prompt = `[${matchData.sport}] Ensemble 분석 요청: ${matchData.homeTeam} vs ${matchData.awayTeam}.\n사용자 메모: ${matchData.context || "없음"}`;
 
@@ -201,6 +210,9 @@ export const analyzeMatch = async (
     let fullText = "";
     let finalGroundingMetadata = null;
     for await (const chunk of responseStream) {
+      if (signal?.aborted) {
+        throw new Error("사용자에 의해 분석이 중지되었습니다.");
+      }
       if (chunk.text) {
         fullText += chunk.text;
         if (onStreamChunk) onStreamChunk(chunk.text);
@@ -212,6 +224,7 @@ export const analyzeMatch = async (
 
     return { text: fullText, groundingMetadata: finalGroundingMetadata, rawData: sportsData };
   } catch (error: any) {
+    if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
     let msg = error.message || "분석 실패";
     if (msg.includes('429')) msg = "현재 요청량이 많아 분석이 지연되고 있습니다 (429). 잠시 후 다시 시도해주세요.";
     throw new Error(msg);
@@ -219,14 +232,16 @@ export const analyzeMatch = async (
 };
 
 /**
- * [BATCH UPDATE] 조합 추천 기능 - Ensemble 로직 적용
+ * [BATCH UPDATE] 조합 추천 기능 - 다중 조합(Multiple Combinations) 생성 지원
  */
 export const recommendCombination = async (
   cartItems: CartItem[], 
   apiKey: string,
   onStatusUpdate: (msg: string) => void,
   folderCount: number = 2,
-  useAutoSearch: boolean = false
+  recommendationCount: number = 1, // [NEW] 생성할 조합의 개수
+  useAutoSearch: boolean = false,
+  signal?: AbortSignal
 ): Promise<BatchAnalysisResult> => {
   if (!apiKey) throw new Error("API 키가 필요합니다.");
   if (cartItems.length < folderCount) throw new Error(`최소 ${folderCount}경기 이상이 필요합니다.`);
@@ -234,28 +249,50 @@ export const recommendCombination = async (
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-pro-preview";
 
-  onStatusUpdate(`데이터 수집 중... (0/${cartItems.length}) - 10초당 1건 처리`);
+  const BATCH_SIZE = 1;
+  const enrichedMatches: {item: CartItem, data: any}[] = [];
+  
+  onStatusUpdate(`데이터 수집 시작 (총 ${cartItems.length}경기) - API 안정성을 위해 순차 처리 중...`);
 
-  const enrichedMatches = [];
-  for (let i = 0; i < cartItems.length; i++) {
-    const item = cartItems[i];
-    onStatusUpdate(`데이터 수집 중... [${item.homeTeam} vs ${item.awayTeam}] (${i + 1}/${cartItems.length})`);
+  let completedCount = 0;
+  
+  for (let i = 0; i < cartItems.length; i += BATCH_SIZE) {
+    if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
     
-    let sportsData = null;
-    try {
-      // The throttle is handled inside getMatchContextData now.
-      sportsData = await getMatchContextData(item.sport, item.homeTeam, item.awayTeam);
-    } catch (e: any) {
-      console.warn(`Data fetch failed for ${item.homeTeam}`, e);
+    if (i > 0) {
+        await wait(1000); 
     }
-    enrichedMatches.push({ item, data: sportsData });
+
+    const chunk = cartItems.slice(i, i + BATCH_SIZE);
+    
+    const chunkResults = await Promise.all(chunk.map(async (item) => {
+      if (signal?.aborted) return { item, data: null };
+      
+      let sportsData = null;
+      try {
+        sportsData = await getMatchContextData(item.sport, item.homeTeam, item.awayTeam);
+      } catch (e: any) {
+        console.warn(`Data fetch failed for ${item.homeTeam}`, e);
+      }
+      return { item, data: sportsData };
+    }));
+    
+    enrichedMatches.push(...chunkResults);
+    completedCount += chunk.length;
+    
+    if (!signal?.aborted) {
+        onStatusUpdate(`데이터 수집 중... (${Math.min(completedCount, cartItems.length)}/${cartItems.length})`);
+    }
   }
 
-  onStatusUpdate(`Gemini의 3 Agents(Data, News, Odds)가 전 경기를 심층 분석 중입니다... (Auto-Search: ${useAutoSearch ? 'ON' : 'OFF'})`);
+  if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
 
+  onStatusUpdate(`Gemini가 ${recommendationCount}개의 최적 ${folderCount}폴더 조합을 생성 중입니다... (Auto-Search: ${useAutoSearch ? 'ON' : 'OFF'})`);
+
+  // [PROMPT UPDATE] 다중 조합 생성 요청
   let prompt = `
     당신은 최고의 승률을 자랑하는 AI 베팅 알고리즘입니다.
-    다음 ${cartItems.length}개 경기를 Agent A(Data), B(News), C(Odds)의 관점에서 평가하고, **가장 기대값(EV)이 높은 ${folderCount}폴더 조합**을 추출하십시오.
+    다음 ${cartItems.length}개 경기를 분석하고, **가장 기대값(EV)이 높은 ${folderCount}폴더 조합을 서로 다르게 ${recommendationCount}개(SET) 생성**하십시오.
 
     [분석 대상 경기]
     ${enrichedMatches.map((m, idx) => `
@@ -266,39 +303,43 @@ export const recommendCombination = async (
     `).join('\n')}
 
     [알고리즘 수행 지침]
-    1. **Agent A (Data):** xG와 최근 경기력을 바탕으로 '정배당의 신뢰도'를 평가하십시오.
-    2. **Agent C (Odds):** 배당률 대비 실제 승리 확률이 높은 'Value Bet'을 식별하십시오.
-    3. **Ensemble:** 리스크가 적고 적중 확률이 가장 높은 경기를 우선순위로 선정하십시오.
-
-    [System Command]
-    ${useAutoSearch ? "Agent B(News)는 Google Search를 사용하여 부상자/결장자 정보를 확인하고 리스크를 필터링하십시오." : ""}
+    1. **Rank Combinations:** 1순위(Best), 2순위(Second Best) ... 순으로 ${recommendationCount}개의 조합을 만드세요.
+    2. **Distinctness:** 가능하면 각 조합은 서로 다른 경기를 포함하거나, 최소한 1경기 이상 다르게 구성하여 리스크를 분산시키세요.
+    3. **Logic:** 각 조합은 Agent A(Data), Agent C(Odds)의 교차 검증을 통과해야 합니다.
 
     [Output JSON Format Only]
     {
       "matches": [
+        // ... (전체 경기 분석 결과 리스트)
         {
           "homeTeam": "Team A",
           "awayTeam": "Team B",
-          "prediction": "홈승 (Ensemble Pick)",
+          "prediction": "홈승",
           "confidence": 88,
-          "reason": "Agent A: xG 우세, Agent C: 배당 1.70 메리트 있음. 부상자 없음.",
+          "reason": "...",
           "riskLevel": "LOW",
-          "sport": "football" 
-        },
-        ...
+          "sport": "football"
+        }
       ],
-      "recommendedCombination": {
-        "matches": [ 
-          // 위 matches 배열에서 선별된 ${folderCount}개 경기 객체 복사 (필드 누락 없이)
-        ],
-        "totalReason": "Agent A, B, C가 만장일치로 추천하는 가장 안전하고 기대값이 높은 조합입니다."
-      }
+      "recommendedCombinations": [
+         {
+            "rank": 1,
+            "matches": [ 
+               // 1순위 조합에 포함된 ${folderCount}개 경기 객체 (위 matches 내용 복사)
+            ],
+            "totalReason": "이 조합은 배당 대비 가장 안전합니다...",
+            "expectedValue": "High"
+         },
+         // ... (요청한 개수만큼 반복)
+      ]
     }
   `;
 
   const tools = useAutoSearch ? [{ googleSearch: {} }] : undefined;
 
   try {
+    if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
+    
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
@@ -309,15 +350,15 @@ export const recommendCombination = async (
       },
     });
 
+    if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
+
     const text = response.text;
     if (!text) throw new Error("AI 응답이 비어있습니다.");
     
     const result = JSON.parse(text) as BatchAnalysisResult;
 
-    // [MERGE UPDATE] 원래의 한글 팀 이름 복구
     const mergeKoreanNames = (match: any) => {
         const original = cartItems.find(item => 
-            // 영문 이름 매칭 시도 (Gemini가 반환한 이름과 입력된 영문 이름이 일치한다고 가정)
             item.homeTeam === match.homeTeam && item.awayTeam === match.awayTeam
         );
         if (original) {
@@ -331,11 +372,32 @@ export const recommendCombination = async (
     };
 
     result.matches = result.matches.map(mergeKoreanNames);
-    result.recommendedCombination.matches = result.recommendedCombination.matches.map(mergeKoreanNames);
+    
+    // [FIX] recommendedCombinations 매핑 (단일 객체가 아닌 배열)
+    if (result.recommendedCombinations && Array.isArray(result.recommendedCombinations)) {
+        result.recommendedCombinations = result.recommendedCombinations.map(combo => ({
+            ...combo,
+            matches: combo.matches.map(mergeKoreanNames)
+        }));
+    } else {
+        // Fallback for singular response if model hallucinates old format
+        // @ts-ignore
+        if (result.recommendedCombination) {
+             // @ts-ignore
+             const singleCombo = result.recommendedCombination;
+             result.recommendedCombinations = [{
+                 rank: 1,
+                 matches: singleCombo.matches.map(mergeKoreanNames),
+                 totalReason: singleCombo.totalReason,
+                 expectedValue: "High"
+             }];
+        }
+    }
     
     return result;
 
   } catch (error: any) {
+    if (signal?.aborted || error.message?.includes('중지')) throw new Error("사용자에 의해 분석이 중지되었습니다.");
     throw new Error("조합 분석 중 오류 발생: " + error.message);
   }
 };
