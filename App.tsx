@@ -242,6 +242,7 @@ const App: React.FC = () => {
             groundingMetadata={analysisState.groundingMetadata}
             batchResult={analysisState.batchResult} 
             onSelectMatch={handleSelectMatchFromBatch} // [NEW] Pass match selection handler
+            onLearn={handleLearn} // [NEW] Pass learner
           />
         )}
         
