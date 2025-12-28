@@ -329,16 +329,28 @@ export const recommendCombination = async (
         1. Set 'gameType': "General"
       `;
   } else if (isProtoMode) {
+      // [UPDATE] 3-Step Strategy for Proto Mode - BUDGET CONTROL ADDED
       typeSpecificInstruction = `
-      **[GLOBAL SETTING: PROTO MATCH PREDICTION (INDIVIDUAL TYPES)]**
-      이 모드에서는 **각 경기마다 지정된 [TARGET TYPE]과 [FIXED CRITERIA]가 서로 다릅니다.**
+      **[GLOBAL SETTING: PROTO MATCH PREDICTION - BUDGET CONTROL]**
       
-      🚨 **[CRITICAL INSTRUCTION - STRICT MATCHING]** 🚨
-      1. 아래 "분석 대상 경기 목록"의 각 GAME 항목에 명시된 **[TARGET TYPE]**을 반드시 확인하십시오.
-      2. **[FIXED CRITERIA]**가 있다면, **절대적으로 그 기준점**을 사용하여 판정하십시오. (AI 임의 변경 금지)
+      **YOUR MISSION:** 
+      Analyze each match INDIVIDUALLY using the 3-Step Strategy (Axis/Trap/Eraser).
       
-      - **Target 'Handicap'**: 반드시 제시된 핸디캡 기준점(예: -1.0, +2.5)을 적용하여 '핸디승', '핸디무', '핸디패' 중 하나를 예측하십시오.
-      - **Target 'UnOver'**: 반드시 제시된 기준점(예: 2.5, 3.5)을 적용하여 '언더' 또는 '오버'를 예측하십시오.
+      🚨 **[CRITICAL BUDGET CONSTRAINT - MAX 10 COMBINATIONS]** 🚨
+      - The user complained that **64 combinations (2^6)** is too expensive.
+      - You must keep the total combinations **UNDER 10**.
+      - **MATHEMATICAL LIMIT:** You are allowed **MAXIMUM 3 MATCHES** with Double Chance (e.g., "승/무") output. (2^3 = 8 combos < 10).
+      - **STRATEGY:**
+         1. **PRIORITIZE:** Identify the **TOP 3 most critical 'TRAP' or 'ERASER'** matches that absolutely require insurance (Double Chance).
+         2. **FORCE DECISION:** For **ALL OTHER MATCHES** (even if they are 'TRAP' or 'ERASER'), you **MUST** predict a **SINGLE OUTCOME** (Home, Draw, or Away). Pick the outcome with the highest expected value.
+         3. **DO NOT** output "승/무/패" (Triple Chance) for any match. It is too expensive.
+      
+      **STRATEGY LABELS:**
+      - **💎 AXIS (축):** Strong Favorite. Predict Single Outcome.
+      - **💣 TRAP (함정):** Risky Favorite. Predict Double Chance (Only if within Max 3 limit) OR Force Single Outcome (Risk).
+      - **🧹 ERASER (지우개):** Chaos. Predict Double Chance (Only if within Max 3 limit) OR Force Single Outcome (High Risk).
+      
+      **Reasoning Format:** "🕵️Data: ... \n📰News: ... \n💰Odds: ..." (Strictly follow this).
       `;
   } else {
       // Manual Combination Mode with Single Target Type (Existing Logic)
@@ -389,7 +401,11 @@ export const recommendCombination = async (
           5. **[Expected Value - PROBABILITY]**: 'expectedValue' 필드에는 **이 조합이 적중할 확률**을 텍스트로 적으십시오.
              - **형식:** "적중 확률: 88% (매우 높음)" 또는 "예상 적중률: 75% (안전)"
           6. **[Detailed Comment]**: 'totalReason'에는 이 조합을 선택한 이유를 **최소 4~5문장**으로 아주 자세하게 설명해주세요.`
-       : `**MISSION (전체 분석 모드):** 제공된 ${cartItems.length}개 **모든 경기**에 대해 예측을 수행하십시오. JSON 출력 시 'gameType'과 'criteria' 필드를 정확히 기재하십시오.`
+       : `**MISSION (프로토 전체 승부식 모드):** 
+          1. 제공된 ${cartItems.length}개 **모든 경기**에 대해 승/무/패 예측을 수행하십시오.
+          2. **조합(Combination)을 생성하지 마십시오.** 오직 개별 경기 분석에만 집중하십시오.
+          3. 각 경기마다 3명의 에이전트 (Data/News/Odds)의 분석 내용을 **상세하게** 작성하십시오.
+          4. JSON 출력 시 'gameType', 'criteria', 'strategyStatus' 필드를 정확히 기재하십시오.`
     }
 
     **[CRITICAL INSTRUCTION: Balanced Analysis]**
@@ -405,10 +421,11 @@ export const recommendCombination = async (
 
         // [New] Explicit Constraint Per Match
         let outputConstraint = "PREDICT: [승, 무, 패]";
-        if (effectiveType === 'Handicap') outputConstraint = "PREDICT ONLY: [핸디승, 핸디무, 핸디패] (DO NOT PREDICT UNDER/OVER)";
-        if (effectiveType === 'UnOver') outputConstraint = "PREDICT ONLY: [오버, 언더] (DO NOT PREDICT WIN/LOSS)";
-        if (effectiveType === 'Sum') outputConstraint = "PREDICT ONLY: [홀, 짝]";
-        if (effectiveType === 'Mixed') outputConstraint = "AUTO SELECT BEST TYPE: [General, Handicap, UnOver]";
+        if (isProtoMode && effectiveType === 'General') outputConstraint = "PREDICT: Single ('승') or Double ('승/무') - MAX 3 Double Chances allowed total."; // Budget constraint note
+        else if (effectiveType === 'Handicap') outputConstraint = "PREDICT ONLY: [핸디승, 핸디무, 핸디패] (DO NOT PREDICT UNDER/OVER)";
+        else if (effectiveType === 'UnOver') outputConstraint = "PREDICT ONLY: [오버, 언더] (DO NOT PREDICT WIN/LOSS)";
+        else if (effectiveType === 'Sum') outputConstraint = "PREDICT ONLY: [홀, 짝]";
+        else if (effectiveType === 'Mixed') outputConstraint = "AUTO SELECT BEST TYPE: [General, Handicap, UnOver]";
 
         return `
     GAME ${idx + 1}: ${m.item.sport} - ${m.item.homeTeam} vs ${m.item.awayTeam}
@@ -426,13 +443,14 @@ export const recommendCombination = async (
         {
           "homeTeam": "Team A",
           "awayTeam": "Team B",
-          "prediction": "${targetGameType === 'Handicap' ? '핸디승' : targetGameType === 'UnOver' ? '언더' : '승'}", 
+          "prediction": "${isProtoMode ? '승/무 (TRAP)' : (targetGameType === 'Handicap' ? '핸디승' : '승')}", 
           "confidence": 85,
           "reason": "🕵️Data: ... \n📰News: ... \n💰Odds: ...",
           "riskLevel": "LOW",
           "sport": "football",
           "gameType": "${isProtoMode || isMixedMode ? 'MUST match the specific [TARGET TYPE] chosen (General, Handicap, UnOver)' : targetGameType}", 
-          "criteria": "${isProtoMode || isMixedMode ? 'MUST match the [FIXED CRITERIA] provided or chosen' : '-1.0'}" 
+          "criteria": "${isProtoMode || isMixedMode ? 'MUST match the [FIXED CRITERIA] provided or chosen' : '-1.0'}",
+          "strategyStatus": "AXIS | TRAP | ERASER | NONE"
         }
       ],
       "recommendedCombinations": [
@@ -447,7 +465,8 @@ export const recommendCombination = async (
                   "reason": "...",
                   "sport": "football",
                   "gameType": "...",
-                  "criteria": "..."
+                  "criteria": "...",
+                  "strategyStatus": "AXIS"
                }
             ],
             "totalReason": "...",
@@ -486,23 +505,35 @@ export const recommendCombination = async (
 
     // [MERGE] API에서 가져온 실제 배당률(Odds) 데이터를 결과에 병합
     const mergeMatchData = (match: any) => {
+        // [FIX]: Safety check for AI response - Prevent crash on missing fields
+        const aiHome = match?.homeTeam ? String(match.homeTeam) : "";
+        const aiAway = match?.awayTeam ? String(match.awayTeam) : "";
+
+        if (!aiHome || !aiAway) {
+            console.warn("AI returned invalid match data (missing teams):", match);
+            return match; 
+        }
+
         // [FIX]: Relaxed matching logic to handle AI variations in naming
         // 1. Try exact match with type/criteria
-        let original = cartItems.find(item => 
-            item.homeTeam.replace(/\s/g, '').toLowerCase() === match.homeTeam.replace(/\s/g, '').toLowerCase() &&
-            item.awayTeam.replace(/\s/g, '').toLowerCase() === match.awayTeam.replace(/\s/g, '').toLowerCase()
-        );
+        let original = cartItems.find(item => {
+            const itemHome = item.homeTeam || "";
+            const itemAway = item.awayTeam || "";
+            return itemHome.replace(/\s/g, '').toLowerCase() === aiHome.replace(/\s/g, '').toLowerCase() &&
+                   itemAway.replace(/\s/g, '').toLowerCase() === aiAway.replace(/\s/g, '').toLowerCase();
+        });
 
         // 2. Fallback: Relaxed name match (contains)
         if (!original) {
-             original = cartItems.find(item => 
-                (item.homeTeam.includes(match.homeTeam) || match.homeTeam.includes(item.homeTeam))
-            );
+             original = cartItems.find(item => {
+                const itemHome = item.homeTeam || "";
+                return (itemHome && aiHome && (itemHome.includes(aiHome) || aiHome.includes(itemHome)));
+             });
         }
 
         const enriched = enrichedMatches.find(e => 
-            e.item.homeTeam === match.homeTeam || 
-            (e.item.homeTeam.replace(/\s/g, '').toLowerCase() === match.homeTeam.replace(/\s/g, '').toLowerCase())
+            e.item.homeTeam === aiHome || 
+            (e.item.homeTeam && e.item.homeTeam.replace(/\s/g, '').toLowerCase() === aiHome.replace(/\s/g, '').toLowerCase())
         );
 
         let oddsData = undefined;
@@ -520,8 +551,6 @@ export const recommendCombination = async (
         }
 
         // [LOGIC] Determine effective GameType
-        // If in Proto mode (analysisMode == 'all'), we prefer specific item type (e.g. 'Handicap') over global 'General'.
-        // [UPDATED for Mixed Mode] If 'Mixed' is selected, we MUST trust the AI's resolved 'match.gameType'.
         let effectiveGameType: GameType = targetGameType;
 
         if (analysisMode === 'all') {

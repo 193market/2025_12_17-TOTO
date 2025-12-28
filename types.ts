@@ -57,13 +57,14 @@ export interface AnalyzedMatchItem {
   awayTeam: string;
   homeTeamKo?: string; // [NEW] 결과 표시용
   awayTeamKo?: string; // [NEW] 결과 표시용
-  prediction: string; // "승", "무", "패", "홈승", "원정승" 등
+  prediction: string; // "승", "무", "패", "승/무", "승/무/패" 등
   confidence: number;
   reason: string;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   odds?: { home: string; draw: string; away: string }; // [NEW] 배당률 정보
   gameType?: GameType; // [NEW] 분석된 게임 유형
   criteria?: string;   // [NEW] 분석된 기준점
+  strategyStatus?: 'AXIS' | 'TRAP' | 'ERASER' | 'NONE'; // [NEW] 3단계 전략 분류
 }
 
 export interface RecommendedCombination {

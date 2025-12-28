@@ -138,6 +138,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
   const getPredictionType = (pred: string | undefined | null) => {
       if (!pred) return 'UNKNOWN';
       const p = pred.replace(/\s/g, '');
+      if (p.includes('/')) return 'COMBO'; // [NEW] Handle Double/Triple Chance
       if (p.includes('언더') || p.includes('오버') || p.includes('홀') || p.includes('짝')) return 'SPECIAL';
       if (p.includes('홈') || (p.includes('승') && !p.includes('원정') && !p.includes('패') && !p.includes('무')) && !p.includes('핸디')) return 'HOME';
       if (p.includes('핸디승')) return 'HOME'; 
@@ -145,6 +146,16 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
       if (p.includes('원정') || p.includes('패')) return 'AWAY';
       if (p.includes('핸디패')) return 'AWAY'; 
       return 'UNKNOWN';
+  };
+
+  const getStrategyBadge = (status: string | undefined) => {
+      if (!status || status === 'NONE') return null;
+      switch (status) {
+          case 'AXIS': return <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold ml-1 border border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]">💎 축 (AXIS)</span>;
+          case 'TRAP': return <span className="text-[10px] bg-amber-600 text-white px-1.5 py-0.5 rounded font-bold ml-1 border border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.3)]">💣 함정 (TRAP)</span>;
+          case 'ERASER': return <span className="text-[10px] bg-slate-500 text-white px-1.5 py-0.5 rounded font-bold ml-1 border border-slate-400">🧹 지우개 (ERASER)</span>;
+          default: return null;
+      }
   };
 
   const generatePdf = async (fileName: string) => {
@@ -199,7 +210,8 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
       } else {
           batchResult.matches.forEach((m, idx) => {
               text += `[GAME ${idx + 1}] ${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam}\n`;
-              text += `PICK: ${m.prediction}\nConfidence: ${m.confidence}%\nReason: ${m.reason}\n\n`;
+              const strategy = m.strategyStatus ? `[${m.strategyStatus}] ` : '';
+              text += `PICK: ${strategy}${m.prediction}\nConfidence: ${m.confidence}%\nReason: ${m.reason}\n\n`;
           });
       }
       downloadTxt(text, 'MatchInsight_Analysis_Report.txt');
@@ -265,9 +277,11 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
          </div>
          {hasCombinations ? (
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up">
+                {/* COMBINATION MODE (EXISTING) */}
                 {batchResult.recommendedCombinations.map((combo, i) => (
                     <div key={i} className="bg-slate-800 rounded-xl overflow-hidden shadow-2xl border-t-4 border-red-500 flex flex-col ring-1 ring-slate-700">
-                        <div className="bg-slate-900/50 p-4 border-b border-slate-700 flex justify-between items-center">
+                        {/* Existing Combo Card Layout ... */}
+                         <div className="bg-slate-900/50 p-4 border-b border-slate-700 flex justify-between items-center">
                             <div className="flex items-center space-x-2">
                                 <span className="text-2xl mr-1">🎫</span>
                                 <span className="font-extrabold text-white text-lg tracking-tight">추천 조합 #{combo.rank}</span>
@@ -282,12 +296,14 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                                 const isHomeWin = pick === 'HOME';
                                 const isAwayWin = pick === 'AWAY';
                                 const isSpecial = pick === 'SPECIAL';
+                                const isCombo = pick === 'COMBO';
                                 return (
                                 <div key={idx} className="p-5 flex flex-col hover:bg-slate-700/50 transition-colors">
                                     <div className="flex flex-col mb-3">
                                         <div className="flex items-center mb-2">
                                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold mr-2 ${m.gameType === 'Handicap' ? 'bg-purple-600/80 text-purple-100' : m.gameType === 'UnOver' ? 'bg-orange-600/80 text-orange-100' : m.gameType === 'Sum' ? 'bg-pink-600/80 text-pink-100' : 'bg-slate-600 text-slate-200'}`}>{m.gameType || 'General'}{m.criteria ? ` (${m.criteria})` : ''}</span>
-                                            <div className="text-center text-xs text-slate-500 font-mono">VS</div>
+                                            {getStrategyBadge(m.strategyStatus)}
+                                            <div className="ml-auto text-xs text-slate-500 font-mono">VS</div>
                                         </div>
                                         <div className="flex flex-col w-full">
                                             <div className={`flex items-center justify-between p-2 rounded ${isHomeWin ? 'bg-red-900/20 border border-red-500/40' : 'bg-transparent'}`}>
@@ -301,7 +317,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                                         </div>
                                     </div>
                                     <div className="flex justify-between items-center mb-3 border-t border-slate-700 pt-3">
-                                         <div className="flex items-center space-x-2"><span className="text-xs text-slate-400">예측 결과:</span><span className={`text-sm font-extrabold ${isHomeWin || isAwayWin || isSpecial ? 'text-red-400' : 'text-yellow-400'}`}>{m.prediction} {pick === 'HOME' && !isSpecial ? '(홈승)' : pick === 'AWAY' && !isSpecial ? '(원정승)' : pick === 'DRAW' && !isSpecial ? '(무승부)' : ''}</span></div>
+                                         <div className="flex items-center space-x-2"><span className="text-xs text-slate-400">예측 결과:</span><span className={`text-sm font-extrabold ${isHomeWin || isAwayWin || isSpecial ? 'text-red-400' : isCombo ? 'text-purple-400' : 'text-yellow-400'}`}>{m.prediction} {pick === 'HOME' && !isSpecial ? '(홈승)' : pick === 'AWAY' && !isSpecial ? '(원정승)' : pick === 'DRAW' && !isSpecial ? '(무승부)' : ''}</span></div>
                                          <span className="text-xs text-emerald-400 font-mono font-bold">신뢰도 {m.confidence}%</span>
                                     </div>
                                     <div className="bg-slate-900 p-3 rounded border border-slate-700/50 shadow-inner"><p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{m.reason}</p></div>
@@ -314,42 +330,95 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                 ))}
              </div>
          ) : (
-            <div className="bg-white rounded-t-xl overflow-hidden shadow-2xl">
-                <div className="bg-slate-900 text-white flex items-center py-3 px-4 text-xs font-bold border-b border-slate-700">
-                    <div className="w-12 text-center text-slate-400">번호</div>
-                    <div className="w-16 text-center text-slate-400">종목</div>
-                    <div className="flex-1 text-right pr-4">홈팀 (Home)</div>
-                    <div className="flex items-center justify-center w-[180px] space-x-1 text-slate-400"><span className="w-1/3 text-center">승</span><span className="w-1/3 text-center">무</span><span className="w-1/3 text-center">패</span></div>
-                    <div className="flex-1 text-left pl-4">원정팀 (Away)</div>
-                    <div className="w-24 text-center text-slate-400">확신도/분석</div>
+            // PROTO MATCH PREDICTION MODE (FULL DETAILS)
+            <>
+                {/* [NEW] Strategy Guide (Legend) */}
+                <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-700 mb-8 shadow-inner ring-1 ring-slate-800">
+                    <h3 className="text-emerald-400 font-bold mb-4 flex items-center text-sm uppercase tracking-wider">
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        3단계 전략 가이드 (Strategy Guide)
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs md:text-sm">
+                        <div className="flex flex-col bg-slate-800 p-3 rounded border border-slate-700/50 hover:bg-slate-800/80 transition-colors">
+                            <span className="text-emerald-400 font-bold mb-2 flex items-center"><span className="mr-2 text-lg">💎</span> 축 (AXIS)</span>
+                            <span className="text-slate-400 leading-snug">대중의 선택과 데이터가 일치하는 <strong className="text-slate-200">확실한 정배당</strong> 경기. 단통 승부를 추천합니다.</span>
+                        </div>
+                        <div className="flex flex-col bg-slate-800 p-3 rounded border border-slate-700/50 hover:bg-slate-800/80 transition-colors">
+                            <span className="text-amber-400 font-bold mb-2 flex items-center"><span className="mr-2 text-lg">💣</span> 함정 (TRAP)</span>
+                            <span className="text-slate-400 leading-snug">인기는 높지만 데이터상 <strong className="text-slate-200">이변 가능성</strong>이 높은 경기. 무승부/역배 보험이 필수입니다.</span>
+                        </div>
+                        <div className="flex flex-col bg-slate-800 p-3 rounded border border-slate-700/50 hover:bg-slate-800/80 transition-colors">
+                            <span className="text-slate-300 font-bold mb-2 flex items-center"><span className="mr-2 text-lg">🧹</span> 지우개 (ERASER)</span>
+                            <span className="text-slate-400 leading-snug">승무패 예측이 매우 힘든 <strong className="text-slate-200">혼전 양상</strong>. 아예 패스하거나 승/무/패 3마킹으로 지우는 것이 좋습니다.</span>
+                        </div>
+                    </div>
                 </div>
-                <div className="divide-y divide-gray-200">
+
+                <div className="grid grid-cols-1 gap-6 animate-fade-in-up">
                     {batchResult.matches.map((match, idx) => {
                         const pick = getPredictionType(match.prediction);
-                        const hOdds = match.odds?.home || '';
-                        const dOdds = match.odds?.draw || '';
-                        const aOdds = match.odds?.away || '';
+                        const isHomeWin = pick === 'HOME';
+                        const isAwayWin = pick === 'AWAY';
+                        const isCombo = pick === 'COMBO';
+                        const isSpecial = pick === 'SPECIAL';
+
                         return (
-                            <div key={idx} className="flex items-stretch bg-white hover:bg-slate-50 transition-colors py-2 px-4 group">
-                                <div className="w-12 flex items-center justify-center text-slate-500 font-mono text-sm">{String(idx + 1).padStart(3, '0')}</div>
-                                <div className="w-16 flex flex-col items-center justify-center text-[10px] text-slate-400 leading-tight"><span className="font-bold text-slate-600 uppercase mb-0.5">{match.prediction?.includes('언더') || match.prediction?.includes('오버') ? 'U/O' : '승패'}</span><span>일반</span></div>
-                                <div className="flex-1 flex flex-col justify-center items-end pr-4 leading-snug"><span className={`text-sm font-bold ${pick === 'HOME' ? 'text-blue-700' : 'text-slate-800'}`}>{match.homeTeam}</span>{match.homeTeamKo && match.homeTeamKo !== match.homeTeam && (<span className="text-[11px] text-slate-500 font-medium tracking-tight">({match.homeTeamKo})</span>)}{match.reason.length > 0 && (<span className="text-[10px] text-slate-400 truncate max-w-[150px] hidden md:block mt-0.5">{match.reason}</span>)}</div>
-                                <div className="w-[180px] flex items-center justify-between space-x-1 select-none">
-                                    <div className={`flex-1 h-10 flex flex-col items-center justify-center border rounded cursor-default transition-all relative ${pick === 'HOME' ? 'bg-blue-600 border-blue-600 text-white shadow-md z-10' : 'bg-white border-gray-300 text-slate-700'}`}><div className="flex flex-col items-center leading-none"><span className="text-xs font-bold mb-0.5">승</span>{hOdds && <span className={`text-[10px] ${pick === 'HOME' ? 'text-blue-100' : 'text-slate-500'}`}>{hOdds}</span>}</div></div>
-                                    <div className={`flex-1 h-10 flex flex-col items-center justify-center border rounded cursor-default transition-all relative ${pick === 'DRAW' ? 'bg-blue-600 border-blue-600 text-white shadow-md z-10' : 'bg-white border-gray-300 text-slate-700'}`}><div className="flex flex-col items-center leading-none"><span className="text-xs font-bold mb-0.5">무</span>{dOdds && dOdds !== '-' && <span className={`text-[10px] ${pick === 'DRAW' ? 'text-blue-100' : 'text-slate-500'}`}>{dOdds}</span>}</div></div>
-                                    <div className={`flex-1 h-10 flex flex-col items-center justify-center border rounded cursor-default transition-all relative ${pick === 'AWAY' ? 'bg-blue-600 border-blue-600 text-white shadow-md z-10' : 'bg-white border-gray-300 text-slate-700'}`}><div className="flex flex-col items-center leading-none"><span className="text-xs font-bold mb-0.5">패</span>{aOdds && <span className={`text-[10px] ${pick === 'AWAY' ? 'text-blue-100' : 'text-slate-500'}`}>{aOdds}</span>}</div></div>
+                            <div key={idx} className="bg-slate-800 rounded-xl overflow-hidden shadow-2xl border border-slate-700 ring-1 ring-slate-700/50 hover:border-emerald-500/30 transition-all duration-300">
+                                {/* Header */}
+                                <div className="bg-slate-900/80 p-4 border-b border-slate-700 flex justify-between items-center">
+                                    <div className="flex items-center space-x-3">
+                                        <span className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-800 border border-slate-600 text-slate-300 font-bold font-mono text-sm shadow-inner">
+                                            {String(idx + 1).padStart(2, '0')}
+                                        </span>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide ${match.gameType === 'Handicap' ? 'bg-purple-900/50 text-purple-300 border border-purple-700/50' : match.gameType === 'UnOver' ? 'bg-orange-900/50 text-orange-300 border border-orange-700/50' : 'bg-blue-900/50 text-blue-300 border border-blue-700/50'}`}>
+                                            {match.gameType || 'General'}{match.criteria ? ` (${match.criteria})` : ''}
+                                        </span>
+                                        <span className="text-xs text-slate-500 uppercase font-bold tracking-wider">{match.sport}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        {getStrategyBadge(match.strategyStatus)}
+                                        <button onClick={() => onSelectMatch && onSelectMatch(match.homeTeam, match.awayTeam, match.sport as SportType)} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-400 px-2 py-1 rounded border border-slate-600 transition-colors" data-html2canvas-ignore="true">
+                                            정밀 재분석 🔄
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="flex-1 flex flex-col justify-center items-start pl-4 leading-snug"><span className={`text-sm font-bold ${pick === 'AWAY' ? 'text-blue-700' : 'text-slate-800'}`}>{match.awayTeam}</span>{match.awayTeamKo && match.awayTeamKo !== match.awayTeam && (<span className="text-[11px] text-slate-500 font-medium tracking-tight">({match.awayTeamKo})</span>)}</div>
-                                <div className="w-24 flex flex-col items-center justify-center space-y-1 pl-2 border-l border-gray-100 ml-2">
-                                    <div className="flex items-center space-x-1" title={`Confidence: ${match.confidence}%`}><div className="w-10 h-1.5 bg-gray-200 rounded-full overflow-hidden"><div className={`h-full ${match.confidence >= 80 ? 'bg-emerald-500' : 'bg-yellow-500'}`} style={{width: `${match.confidence}%`}}></div></div><span className="text-[10px] font-bold text-slate-500">{match.confidence}%</span></div>
-                                    <button onClick={() => onSelectMatch && onSelectMatch(match.homeTeam, match.awayTeam, 'football')} className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded border border-slate-300 transition-colors" data-html2canvas-ignore="true">상세보기</button>
+
+                                {/* Match Info & Prediction */}
+                                <div className="p-5">
+                                    <div className="flex items-center justify-between mb-6">
+                                        <div className={`flex-1 text-right ${isHomeWin ? 'opacity-100' : 'opacity-70'}`}>
+                                            <span className={`block text-lg md:text-xl font-black leading-tight ${isHomeWin ? 'text-red-400' : 'text-slate-200'}`}>{match.homeTeamKo || match.homeTeam}</span>
+                                            {match.odds?.home && <span className="text-xs text-slate-500 font-mono mt-1 block">x{match.odds.home}</span>}
+                                        </div>
+                                        <div className="px-6 flex flex-col items-center">
+                                            <span className="text-xs text-slate-600 font-bold tracking-widest mb-1">VS</span>
+                                            <div className={`text-2xl font-black px-4 py-1 rounded-lg border-2 ${isHomeWin || isAwayWin || isSpecial ? 'border-red-500/50 text-red-400 bg-red-900/10 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : isCombo ? 'border-purple-500/50 text-purple-400 bg-purple-900/10' : 'border-yellow-500/50 text-yellow-400 bg-yellow-900/10'}`}>
+                                                {match.prediction}
+                                            </div>
+                                            <div className="mt-2 w-24 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                                <div className={`h-full rounded-full ${match.confidence >= 80 ? 'bg-emerald-500' : match.confidence >= 60 ? 'bg-yellow-500' : 'bg-slate-500'}`} style={{width: `${match.confidence}%`}}></div>
+                                            </div>
+                                            <span className="text-[10px] text-slate-500 mt-1 font-mono">{match.confidence}% Prob</span>
+                                        </div>
+                                        <div className={`flex-1 text-left ${isAwayWin ? 'opacity-100' : 'opacity-70'}`}>
+                                            <span className={`block text-lg md:text-xl font-black leading-tight ${isAwayWin ? 'text-red-400' : 'text-slate-200'}`}>{match.awayTeamKo || match.awayTeam}</span>
+                                            {match.odds?.away && <span className="text-xs text-slate-500 font-mono mt-1 block">x{match.odds.away}</span>}
+                                        </div>
+                                    </div>
+
+                                    {/* 3-Agent Analysis Box */}
+                                    <div className="bg-slate-900/60 rounded-lg p-4 border border-slate-700/50 relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500/50"></div>
+                                        <p className="text-xs md:text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-sans">
+                                            {match.reason}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         );
                     })}
                 </div>
-                <div className="bg-slate-50 p-3 border-t border-gray-200 text-center text-xs text-slate-500 flex justify-center space-x-6"><div className="flex items-center"><span className="w-3 h-3 bg-blue-600 rounded mr-1"></span> AI 예측 마킹 (파란색)</div><div className="flex items-center"><span className="w-3 h-3 bg-emerald-500 rounded mr-1"></span> 확신도 높음 (80%↑)</div><div className="flex items-center"><span className="w-3 h-3 bg-yellow-500 rounded mr-1"></span> 확신도 보통</div></div>
-            </div>
+            </>
          )}
          {sources.length > 0 && (
             <div className="mt-6 bg-slate-900/50 px-6 py-4 rounded-xl border border-slate-700/50 animate-fade-in" data-html2canvas-ignore="true">
