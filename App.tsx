@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import MatchInput from './components/MatchInput';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import { analyzeMatch, recommendCombination } from './services/geminiService';
-import { MatchData, AnalysisState, TrainingSample, CartItem, SportType } from './types';
+import { MatchData, AnalysisState, TrainingSample, CartItem, SportType, GameType } from './types';
 
 const STORAGE_KEY = 'matchInsight_learnedSamples';
 
@@ -16,7 +15,7 @@ const App: React.FC = () => {
   });
 
   const [learnedSamples, setLearnedSamples] = useState<TrainingSample[]>([]);
-  // [NEW] Key to force re-render of MatchInput on reset
+  // [NEW] Key to force re-render of MatchInput on reset (입력 폼 초기화용)
   const [resetKey, setResetKey] = useState(0);
   // [NEW] AbortController ref
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -56,7 +55,7 @@ const App: React.FC = () => {
     }
   };
 
-  // [NEW] 앱 초기화 핸들러 (홈 버튼)
+  // [NEW] 앱 초기화 핸들러 (홈 버튼 기능)
   const handleReset = () => {
       // 진행 중인 분석 중지
       if (abortControllerRef.current) {
@@ -64,7 +63,7 @@ const App: React.FC = () => {
           abortControllerRef.current = null;
       }
       
-      // 결과 상태 초기화
+      // 결과 상태 초기화 (메인 화면으로 복귀)
       setAnalysisState({
           isLoading: false,
           data: null,
@@ -72,7 +71,7 @@ const App: React.FC = () => {
           batchResult: null,
       });
 
-      // 입력 폼 초기화 (키 변경으로 컴포넌트 재생성)
+      // 입력 폼 컴포넌트를 완전히 새로고침하여 입력값 초기화
       setResetKey(prev => prev + 1);
   };
 
@@ -123,8 +122,8 @@ const App: React.FC = () => {
     }
   };
 
-  // [UPDATED] 조합 추천 핸들러 (recommendationCount 추가)
-  const handleRecommend = async (cartItems: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean) => {
+  // [UPDATED] 조합 추천 핸들러 (analysisMode 추가)
+  const handleRecommend = async (cartItems: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean, analysisMode: 'combination' | 'all', targetGameType?: GameType) => {
      if (!apiKey) {
        setAnalysisState({ isLoading: false, data: null, error: "API 키가 누락되었습니다." });
        return;
@@ -134,7 +133,11 @@ const App: React.FC = () => {
      if (abortControllerRef.current) abortControllerRef.current.abort();
      abortControllerRef.current = new AbortController();
 
-     setAnalysisState({ isLoading: true, data: `${folderCount}폴더 조합(${recommendationCount}개 SET) 분석을 시작합니다... (자동 검색: ${useAutoSearch ? 'ON' : 'OFF'})`, error: null, batchResult: null });
+     const loadingMsg = analysisMode === 'all' 
+        ? `전체 ${cartItems.length}경기 승부식 분석을 진행 중입니다... (자동 검색: ${useAutoSearch ? 'ON' : 'OFF'})`
+        : `${folderCount}폴더 조합(${recommendationCount}개 SET) 분석을 시작합니다... (자동 검색: ${useAutoSearch ? 'ON' : 'OFF'})`;
+
+     setAnalysisState({ isLoading: true, data: loadingMsg, error: null, batchResult: null });
 
      try {
        const result = await recommendCombination(
@@ -144,9 +147,11 @@ const App: React.FC = () => {
                setAnalysisState(prev => ({ ...prev, data: statusMsg })); // 상태 메시지 표시
            }, 
            folderCount, 
-           recommendationCount, // [NEW] Pass count
+           recommendationCount, 
            useAutoSearch,
-           abortControllerRef.current.signal // [NEW] Pass signal
+           abortControllerRef.current.signal,
+           analysisMode, // [NEW] Pass mode
+           targetGameType // [NEW] Pass targetGameType
        );
        
        setAnalysisState({ isLoading: false, data: null, batchResult: result, error: null });
@@ -176,7 +181,7 @@ const App: React.FC = () => {
       <nav className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            {/* [UPDATE] Clickable Home Button */}
+            {/* Logo Area - Acts as Home */}
             <button 
                 onClick={handleReset}
                 className="flex items-center space-x-3 hover:opacity-80 transition-opacity focus:outline-none group"
@@ -187,11 +192,24 @@ const App: React.FC = () => {
               </div>
               <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400 group-hover:from-emerald-300 group-hover:to-cyan-300">MatchInsight AI</span>
             </button>
-            <div className="hidden md:flex items-center space-x-4">
-               {learnedSamples.length > 0 && (
-                 <button onClick={handleClearLearning} className="text-xs text-slate-500 hover:text-red-400 transition-colors">학습 데이터 초기화 ({learnedSamples.length})</button>
-               )}
-              <span className="text-xs font-mono text-slate-500 border border-slate-700 px-2 py-1 rounded">POWERED BY GEMINI 3.0 & API-SPORTS</span>
+            
+            <div className="flex items-center space-x-4">
+               {/* Explicit Home Button for User Clarity */}
+               <button 
+                   onClick={handleReset}
+                   className="flex items-center space-x-1 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg transition-colors border border-slate-700"
+                   title="현재 분석 내용을 지우고 처음으로 돌아갑니다"
+               >
+                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+                   <span className="text-sm font-bold">홈으로</span>
+               </button>
+
+               <div className="hidden md:flex items-center space-x-4">
+                  {learnedSamples.length > 0 && (
+                    <button onClick={handleClearLearning} className="text-xs text-slate-500 hover:text-red-400 transition-colors">학습 데이터 초기화 ({learnedSamples.length})</button>
+                  )}
+                  <span className="text-xs font-mono text-slate-500 border border-slate-700 px-2 py-1 rounded">POWERED BY GEMINI 3.0</span>
+               </div>
             </div>
           </div>
         </div>
@@ -224,7 +242,7 @@ const App: React.FC = () => {
         )}
 
         <div className="mb-12">
-          {/* [UPDATE] key prop for resetting component state */}
+          {/* [UPDATE] key prop for resetting component state when Reset button is clicked */}
           <MatchInput 
             key={resetKey}
             onAnalyze={handleAnalyze} 
@@ -236,9 +254,11 @@ const App: React.FC = () => {
           />
         </div>
 
+        {/* [UPDATED] Pass isLoading to AnalysisDisplay */}
         {(analysisState.data || analysisState.batchResult || analysisState.isLoading) && (
           <AnalysisDisplay 
             content={analysisState.data} 
+            isLoading={analysisState.isLoading}
             groundingMetadata={analysisState.groundingMetadata}
             batchResult={analysisState.batchResult} 
             onSelectMatch={handleSelectMatchFromBatch} // [NEW] Pass match selection handler

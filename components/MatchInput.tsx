@@ -1,19 +1,18 @@
-
 import React, { useState, useRef } from 'react';
-import { MatchData, SportType, TrainingSample, CartItem } from '../types';
+import { MatchData, SportType, TrainingSample, CartItem, GameType } from '../types';
 
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
   onLearn: (samples: TrainingSample[]) => void;
-  onRecommend?: (items: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean) => void;
+  // [UPDATED] Pass targetGameType to recommend function
+  onRecommend?: (items: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean, analysisMode: 'combination' | 'all', targetGameType?: GameType) => void;
   learnedCount: number;
   isLoading: boolean;
   previousAnalysis?: string | null;
 }
 
-// [MAPPING UPDATE] 배트맨/토토 용어 및 주요 팀 매핑 데이터 대폭 확장 (API-Sports 공식 명칭 기준)
 const TEAM_MAPPINGS: Record<string, string> = {
-  // --- [잉글랜드: EPL/EFL] ---
+  // EPL/EFL
   '토트넘': 'Tottenham Hotspur',
   '맨시티': 'Manchester City', '맨체스C': 'Manchester City', '맨체스터시티': 'Manchester City',
   '맨유': 'Manchester United', '맨체스U': 'Manchester United', '맨체스터유나이티드': 'Manchester United',
@@ -22,7 +21,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '첼시': 'Chelsea',
   '울버햄튼': 'Wolverhampton Wanderers', '울버햄프': 'Wolverhampton Wanderers',
   '아스톤빌': 'Aston Villa', '아스톤': 'Aston Villa', 'A빌라': 'Aston Villa',
-  '뉴캐슬': 'Newcastle United',
+  '뉴캐슬': 'Newcastle United', '뉴캐슬U': 'Newcastle United',
   '브라이튼': 'Brighton & Hove Albion', '브라이턴': 'Brighton & Hove Albion',
   '웨스트햄': 'West Ham United',
   '에버튼': 'Everton', '에버턴': 'Everton',
@@ -39,14 +38,14 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '사우스햄': 'Southampton', '사우스햄튼': 'Southampton', '사우샘프': 'Southampton',
   '입스위치': 'Ipswich Town',
   '노리치C': 'Norwich City', '노리치': 'Norwich City',
-  '웨스트브': 'West Bromwich Albion', 'WBA': 'West Bromwich Albion',
+  '웨스트브': 'West Bromwich Albion', 'WBA': 'West Bromwich Albion', '웨스브로': 'West Bromwich Albion',
   '헐시티': 'Hull City',
   '코번트리': 'Coventry City',
   '미들즈브': 'Middlesbrough',
   '프레스턴': 'Preston North End',
   '선덜랜드': 'Sunderland',
   '왓포드': 'Watford',
-  '브리스톨': 'Bristol City',
+  '브리스톨': 'Bristol City', '브리스C': 'Bristol City',
   '밀월': 'Millwall',
   '카디프': 'Cardiff City',
   '스완지': 'Swansea City', '스완지C': 'Swansea City',
@@ -69,7 +68,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '위건': 'Wigan Athletic',
   '레딩': 'Reading',
 
-  // --- [스페인: 라리가] ---
+  // La Liga
   '레알마드': 'Real Madrid', '레알': 'Real Madrid',
   '바르셀로': 'Barcelona', '바르사': 'Barcelona',
   '아틀레티': 'Atletico Madrid', 'AT마드리드': 'Atletico Madrid',
@@ -91,7 +90,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '그라나다': 'Granada',
   '알메리아': 'Almeria',
 
-  // --- [이탈리아: 세리에 A/B] ---
+  // Serie A/B
   '인터밀란': 'Inter Milan', '인테르': 'Inter Milan',
   'AC밀란': 'AC Milan',
   '유벤투스': 'Juventus',
@@ -129,7 +128,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '치타델라': 'Cittadella',
   '카탄차로': 'Catanzaro',
 
-  // --- [독일: 분데스리가] ---
+  // Bundesliga
   '뮌헨': 'Bayern Munich', '바이에른': 'Bayern Munich', '바이에른뮌헨': 'Bayern Munich',
   '도르트문': 'Borussia Dortmund', '도르트': 'Borussia Dortmund',
   '레버쿠젠': 'Bayer Leverkusen',
@@ -151,7 +150,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '상파울리': 'St. Pauli',
   '홀슈타인': 'Holstein Kiel',
 
-  // --- [프랑스: 리그 1] ---
+  // Ligue 1
   '파리생제': 'Paris Saint Germain', '파리': 'Paris Saint Germain', 'PSG': 'Paris Saint Germain',
   '모나코': 'AS Monaco',
   '마르세유': 'Marseille',
@@ -174,11 +173,12 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '앙제': 'Angers',
   '생테티엔': 'Saint-Etienne',
 
-  // --- [네덜란드: 에레디비시] ---
+  // Eredivisie
   '에인트호': 'PSV Eindhoven', 'PSV': 'PSV Eindhoven',
   '페예노르': 'Feyenoord',
   '아약스': 'Ajax',
   '알크마르': 'AZ Alkmaar',
+  'az': 'AZ Alkmaar',
   '트벤테': 'Twente',
   '위트레흐': 'Utrecht',
   '헤이렌베': 'Heerenveen',
@@ -191,7 +191,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '스파르타': 'Sparta Rotterdam',
   '헤라클레': 'Heracles',
 
-  // --- [일본: J리그] ---
+  // J-League
   '감바오사': 'Gamba Osaka',
   '가와사키': 'Kawasaki Frontale',
   '우라와': 'Urawa Red Diamonds',
@@ -213,7 +213,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '도쿄베르': 'Tokyo Verdy',
   '후쿠오카': 'Avispa Fukuoka',
 
-  // --- [호주: A리그] ---
+  // A-League
   '애들유나': 'Adelaide United',
   '웨스원더': 'Western Sydney Wanderers',
   '멜버른빅': 'Melbourne Victory',
@@ -227,7 +227,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '웨스턴유': 'Western United',
   '오클랜드': 'Auckland FC',
   
-  // --- [축구: 국가대표] ---
+  // National
   '대한민국': 'South Korea', '한국': 'South Korea',
   '일본': 'Japan',
   '중국': 'China',
@@ -309,7 +309,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '벨기에': 'Belgium',
   '크로아티': 'Croatia',
 
-  // --- [농구: NBA] ---
+  // NBA
   '뉴욕닉스': 'New York Knicks',
   '클리캐벌': 'Cleveland Cavaliers',
   '오클썬더': 'Oklahoma City Thunder',
@@ -341,7 +341,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '멤피그리': 'Memphis Grizzlies',
   '뉴올펠리': 'New Orleans Pelicans',
 
-  // --- [농구: KBL] ---
+  // KBL
   '울산모비': 'Ulsan Hyundai Mobis',
   '고양소노': 'Goyang Sono',
   '한국가스': 'KOGAS',
@@ -353,7 +353,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '서울삼성': 'Seoul Samsung Thunders',
   '창원LG': 'Changwon LG Sakers', '창원lg': 'Changwon LG Sakers',
 
-  // --- [배구: KOVO] ---
+  // KOVO
   'KB손보': 'KB Stars',
   '대한항공': 'Korean Air Jumbos',
   '현대건설': 'Hyundai Hillstate',
@@ -369,7 +369,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '페퍼저축': 'AI Peppers',
   '도로공사': 'Hi-pass',
 
-  // --- [야구: MLB/KBO] ---
+  // MLB/KBO
   '다저스': 'Los Angeles Dodgers',
   '양키스': 'New York Yankees',
   '샌디에이': 'San Diego Padres',
@@ -380,7 +380,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   '텍사스': 'Texas Rangers',
   '휴스턴': 'Houston Astros',
   
-  // 기본 국가 매핑
+  // Basic
   '미국': 'USA'
 };
 
@@ -390,8 +390,9 @@ const DEFAULT_CONTEXT = `(초보자 모드)
 2. 경기장 날씨나 감독 이슈 같은 최신 뉴스가 있다면 꼭 검색해서 반영해줘.
 3. 정말 확실하지 않으면 "이번엔 쉬어가세요(NO BET)"라고 솔직하게 말해줘.`;
 
-// [NEW] Helper to find Korean name from English name
 const getKoreanName = (englishName: string): string | undefined => {
+    // English -> Korean Reverse Lookup
+    // Find keys where Value === englishName AND Key contains Korean
     const foundKey = Object.keys(TEAM_MAPPINGS).find(key => 
         TEAM_MAPPINGS[key].toLowerCase() === englishName.toLowerCase() && /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(key)
     );
@@ -399,7 +400,7 @@ const getKoreanName = (englishName: string): string | undefined => {
 };
 
 const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend, learnedCount, isLoading, previousAnalysis }) => {
-  const [mode, setMode] = useState<'cart' | 'single' | 'synthesis'>('cart');
+  const [mode, setMode] = useState<'proto' | 'manual' | 'single'>('manual');
   const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
@@ -407,16 +408,14 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const [context, setContext] = useState(DEFAULT_CONTEXT);
   const [autoSearch, setAutoSearch] = useState(true); 
   
+  // [NEW] Global Game Type State for Manual Mode (Batch Config)
+  const [targetGameType, setTargetGameType] = useState<GameType>('General');
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [pasteInput, setPasteInput] = useState('');
-  const [showPasteArea, setShowPasteArea] = useState(false);
   const [folderCount, setFolderCount] = useState<number>(2);
-  const [recommendationCount, setRecommendationCount] = useState<number>(1); // [NEW] 추천 조합 개수
+  const [recommendationCount, setRecommendationCount] = useState<number>(1); 
 
-  const [fileWithContext, setFileWithContext] = useState<File | null>(null);
-  const [fileNoContext, setFileNoContext] = useState<File | null>(null);
-  const [fileContent1, setFileContent1] = useState<string>('');
-  const [fileContent2, setFileContent2] = useState<string>('');
   const [conversionMsg, setConversionMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
   const contextFileInputRef = useRef<HTMLInputElement>(null);
@@ -424,7 +423,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const normalizeAndConvert = (name: string): string => {
       const normalized = name.trim();
       const noSpace = normalized.replace(/\s+/g, '');
-      // Check full match, then no-space match, then return original
       return TEAM_MAPPINGS[normalized] || TEAM_MAPPINGS[noSpace] || normalized;
   };
 
@@ -437,8 +435,11 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     const finalHome = normalizeAndConvert(homeTeam);
     const finalAway = normalizeAndConvert(awayTeam);
     
-    const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : getKoreanName(finalHome);
-    const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : getKoreanName(finalAway);
+    // [FIX] Improved Korean name lookup logic
+    // If input is already Korean, use it.
+    // If input is English (normalized), try to find Key in Mappings.
+    const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : (getKoreanName(finalHome) || homeTeam);
+    const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : (getKoreanName(finalAway) || awayTeam);
 
     const newItem: CartItem = {
         id: Date.now().toString(),
@@ -446,7 +447,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         homeTeam: finalHome,
         awayTeam: finalAway,
         homeTeamKo: homeKo, 
-        awayTeamKo: awayKo 
+        awayTeamKo: awayKo,
+        gameType: 'General', // Default placeholder, will be overridden by batch setting
+        criteria: null
     };
 
     setCart([...cart, newItem]);
@@ -469,71 +472,136 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const handleBulkParse = () => {
       if (!pasteInput.trim()) return;
 
-      const lines = pasteInput.split('\n');
       let currentParsedSport: SportType = 'football';
+      if (pasteInput.includes('농구') || pasteInput.includes('NBA') || pasteInput.includes('KBL')) currentParsedSport = 'basketball';
+      else if (pasteInput.includes('배구') || pasteInput.includes('KOVO')) currentParsedSport = 'volleyball';
+      else if (pasteInput.includes('야구') || pasteInput.includes('MLB') || pasteInput.includes('KBO')) currentParsedSport = 'baseball';
+
       const newItems: CartItem[] = [];
       let addedCount = 0;
       
+      const existingKeys = new Set(cart.map(item => 
+          `${normalizeAndConvert(item.homeTeam)}-${normalizeAndConvert(item.awayTeam)}-${item.gameType || 'gen'}-${item.criteria || '0'}`
+      ));
       const addedMatchKeys = new Set<string>();
 
-      lines.forEach(line => {
-          const cleanLine = line.trim();
-          const isInfoLine = cleanLine.includes('상세정보') || cleanLine.includes('경기장');
+      const sortedMappingKeys = Object.keys(TEAM_MAPPINGS).sort((a, b) => b.length - a.length);
+
+      const processLineOrBlock = (text: string, voteRateStr?: string) => {
+          let gameType: GameType = 'General';
+          let criteria: string | undefined = undefined;
+
+          // Only parse game type from text if in Proto mode, 
+          // but for Manual/Bulk, we generally default to General and let user select global type later.
+          // However, preserving original parsing logic for Proto Paste compatibility.
+          if (text.includes('핸디캡')) gameType = 'Handicap';
+          else if (text.includes('언더오버')) gameType = 'UnOver';
+          else if (text.includes('SUM')) gameType = 'Sum';
           
-          if (cleanLine.includes('농구') || cleanLine.includes('NBA') || cleanLine.includes('KBL')) currentParsedSport = 'basketball';
-          else if (cleanLine.includes('배구') || cleanLine.includes('KOVO')) currentParsedSport = 'volleyball';
-          else if (cleanLine.includes('야구') || cleanLine.includes('MLB') || cleanLine.includes('KBO')) currentParsedSport = 'baseball';
-          else if (cleanLine.includes('축구') || cleanLine.includes('EPL')) currentParsedSport = 'football';
+          if (gameType === 'Handicap') {
+              const hMatch = text.match(/H\s*([-+]?\d+(\.\d+)?)/);
+              if (hMatch) criteria = hMatch[1];
+              else {
+                  const nMatch = text.match(/(?:H\s*)?([-+]\d+(\.\d+)?)/);
+                  if (nMatch) criteria = nMatch[1];
+              }
+          } else if (gameType === 'UnOver') {
+              const uMatch = text.match(/U\/O\s*(\d+(\.\d+)?)/);
+              if (uMatch) criteria = uMatch[1];
+              else {
+                   const nMatch = text.match(/\d+(\.\d+)?/);
+                   if (nMatch && parseFloat(nMatch[0]) < 10) criteria = nMatch[0];
+              }
+          }
 
-          if (isInfoLine) return; 
+          const foundTeams: { key: string, en: string, idx: number }[] = [];
+          
+          // [FIX] Use a temporary string and mask found terms to prevent substring matching
+          // Example: '적도기니 : 수단' -> '적도기니' found -> mask it -> '기니' (part of 적도기니) won't be found again.
+          let tempText = text;
 
-          if (cleanLine.includes(':')) {
-              const parts = cleanLine.split(':');
+          for (const key of sortedMappingKeys) {
+             const idx = tempText.indexOf(key);
+             if (idx !== -1) {
+                 foundTeams.push({ key, en: TEAM_MAPPINGS[key], idx });
+                 // Replace found key with spaces to preserve indices but prevent re-matching
+                 const mask = " ".repeat(key.length);
+                 tempText = tempText.substring(0, idx) + mask + tempText.substring(idx + key.length);
+             }
+          }
+          
+          foundTeams.sort((a, b) => a.idx - b.idx);
+
+          const distinctTeams: {en: string, ko: string}[] = [];
+          const seenEn = new Set<string>();
+          
+          for (const item of foundTeams) {
+              if (!seenEn.has(item.en)) {
+                  distinctTeams.push({ en: item.en, ko: item.key });
+                  seenEn.add(item.en);
+              }
+              if (distinctTeams.length === 2) break;
+          }
+
+          if (distinctTeams.length === 2) {
+              const homeData = distinctTeams[0];
+              const awayData = distinctTeams[1];
+
+              const matchKey = `${homeData.en}-${awayData.en}-${gameType}-${criteria || '0'}`;
               
-              if (parts.length === 2) {
-                  let rawHome = parts[0];
-                  let rawAway = parts[1];
-
-                  const cleanRegex = /(\d{1,2}\/\d{1,2})|(\d{1,2}:\d{1,2})|(\(N\))|(\[H\])/g;
-                  
-                  rawHome = rawHome.replace(cleanRegex, '').trim();
-                  rawHome = rawHome.replace(/^\d+\s+/, '').trim();
-                  rawHome = rawHome.replace(/\s+\d+$/, '').trim();
-
-                  rawAway = rawAway.replace(cleanRegex, '').trim();
-                  rawAway = rawAway.replace(/\s+[\d.]+$/, '').trim();
-                  
-                  if (!rawHome || !rawAway || /^\d+$/.test(rawHome)) return;
-
-                  const matchKey = `${rawHome}-${rawAway}`;
-                  if (addedMatchKeys.has(matchKey)) return;
-
-                  const mappedHome = normalizeAndConvert(rawHome);
-                  const mappedAway = normalizeAndConvert(rawAway);
-                  
+              if (!existingKeys.has(matchKey) && !addedMatchKeys.has(matchKey)) {
                   newItems.push({
                       id: Date.now().toString() + Math.random(),
                       sport: currentParsedSport,
-                      homeTeam: mappedHome,
-                      awayTeam: mappedAway,
-                      homeTeamKo: rawHome !== mappedHome ? rawHome : undefined, 
-                      awayTeamKo: rawAway !== mappedAway ? rawAway : undefined 
+                      homeTeam: homeData.en,
+                      awayTeam: awayData.en,
+                      homeTeamKo: homeData.ko,
+                      awayTeamKo: awayData.ko,
+                      voteRates: voteRateStr,
+                      gameType,
+                      criteria
                   });
-                  
                   addedMatchKeys.add(matchKey);
                   addedCount++;
               }
           }
-      });
+      };
+
+      const hasVoteRates = pasteInput.includes('투표율');
+
+      if (hasVoteRates) {
+          const blocks = pasteInput.split(/(?=\d+경기)/g);
+          blocks.forEach(block => {
+              if (!block.trim()) return;
+              const voteMatches = block.match(/투표율\s*(\d+(\.\d+)?)%/g);
+              let voteRateStr = undefined;
+              if (voteMatches && voteMatches.length >= 3) {
+                   const rates = voteMatches.map(v => v.replace(/투표율\s*/, ''));
+                   voteRateStr = `Public Vote - Home: ${rates[0]}, Draw: ${rates[1]}, Away: ${rates[2]}`;
+              }
+              processLineOrBlock(block, voteRateStr);
+          });
+      } else {
+          const blocks = pasteInput.split(/(?=\d{3,}\s)/); 
+          if (blocks.length > 1) {
+             blocks.forEach(b => processLineOrBlock(b));
+          } else {
+             const lines = pasteInput.split('\n');
+             lines.forEach(line => processLineOrBlock(line));
+          }
+      }
 
       if (addedCount > 0) {
           setCart([...cart, ...newItems]);
           setConversionMsg(`${addedCount}경기 자동 추가 완료!`);
           setPasteInput('');
-          setShowPasteArea(false);
           setTimeout(() => setConversionMsg(null), 3000);
       } else {
-          setWarningMsg("유효한 경기 정보를 찾지 못했습니다. 텍스트 형식을 확인해주세요.");
+          if (newItems.length === 0 && addedMatchKeys.size > 0) {
+               setWarningMsg("이미 리스트에 있는 경기들이라 추가되지 않았습니다.");
+          } else {
+               setWarningMsg("등록된 팀 정보를 찾지 못했습니다.");
+          }
       }
   };
 
@@ -582,13 +650,18 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     e.preventDefault();
     if (isLoading) return;
 
-    if (mode === 'cart') {
+    if (mode === 'proto' || mode === 'manual') {
         if (cart.length < 2) {
             alert("최소 2경기 이상 리스트에 담아야 조합을 추천할 수 있습니다.");
             return;
         }
-        // [UPDATED] Pass recommendationCount
-        if (onRecommend) onRecommend(cart, folderCount, recommendationCount, autoSearch);
+        if (onRecommend) {
+            if (mode === 'proto') {
+                onRecommend(cart, cart.length, 1, autoSearch, 'all');
+            } else {
+                onRecommend(cart, folderCount, recommendationCount, autoSearch, 'combination', targetGameType);
+            }
+        }
     } 
     else if (mode === 'single') {
       if (!homeTeam || !awayTeam) return;
@@ -613,48 +686,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         trainingData: [],
         useAutoSearch: autoSearch
       });
-    } 
-    else {
-      if (!fileContent1 || !fileContent2) {
-        alert("두 개의 분석 파일(맥락 포함/미포함)을 모두 업로드해주세요.");
-        return;
-      }
-      onAnalyze({ 
-        sport, 
-        homeTeam: "Analysis", 
-        awayTeam: "Comparison", 
-        date, 
-        context: "Synthesis Mode",
-        uploadedContent: {
-          contextAnalysis: fileContent1,
-          noContextAnalysis: fileContent2
-        },
-        useAutoSearch: autoSearch
-      });
     }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'context' | 'no-context') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.type !== 'text/plain') {
-      alert("TXT 파일만 업로드 가능합니다.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      if (type === 'context') {
-        setFileWithContext(file);
-        setFileContent1(text);
-      } else {
-        setFileNoContext(file);
-        setFileContent2(text);
-      }
-    };
-    reader.readAsText(file);
   };
 
   const handleTeamBlur = (type: 'home' | 'away') => {
@@ -682,20 +714,33 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     }
   };
 
+  const isBatchMode = mode === 'proto' || mode === 'manual';
+
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 relative">
       
       <div className="flex border-b border-slate-700 mb-6">
         <button
           type="button"
-          onClick={() => setMode('cart')}
+          onClick={() => setMode('manual')}
           className={`flex-1 pb-3 text-sm font-bold transition-colors ${
-            mode === 'cart' 
+            mode === 'manual' 
               ? 'text-emerald-400 border-b-2 border-emerald-400' 
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          🛒 조합 추천기 (Best)
+          🛒 수동 조합
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('proto')}
+          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
+            mode === 'proto' 
+              ? 'text-emerald-400 border-b-2 border-emerald-400' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          📝 프로토 승부식
         </button>
         <button
           type="button"
@@ -706,18 +751,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          ⚽ 단일 정밀 분석
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('synthesis')}
-          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
-            mode === 'synthesis' 
-              ? 'text-emerald-400 border-b-2 border-emerald-400' 
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          📂 파일 종합
+          ⚽ 단일 분석
         </button>
       </div>
 
@@ -734,7 +768,8 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
 
       <form onSubmit={handleSubmit} className="space-y-4">
         
-        {!showPasteArea && (
+        {/* Sport Selector - Visible for Manual & Single */}
+        {(mode === 'manual' || mode === 'single') && (
         <div>
           <label className="block text-slate-400 text-sm font-semibold mb-2">분석 종목 (Sport)</label>
           <div className="grid grid-cols-5 gap-2">
@@ -752,75 +787,119 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         </div>
         )}
 
-        {mode === 'cart' && (
-            <div className="mb-4">
-                  {!showPasteArea ? (
-                      <button 
-                        type="button"
-                        onClick={() => setShowPasteArea(true)}
-                        className="w-full py-3 bg-indigo-900/50 hover:bg-indigo-800/50 text-indigo-300 border border-indigo-700/50 rounded-lg flex items-center justify-center font-bold text-sm transition-all"
-                      >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                        📋 배트맨 사이트 텍스트 붙여넣기 (자동 파싱)
-                      </button>
-                  ) : (
-                      <div className="bg-slate-900 rounded-lg p-4 border border-indigo-500/50">
-                          <div className="flex justify-between items-center mb-2">
-                              <label className="text-indigo-400 text-xs font-bold">배트맨 목록을 복사해서 붙여넣으세요</label>
-                              <button type="button" onClick={() => setShowPasteArea(false)} className="text-xs text-slate-500 hover:text-white">닫기</button>
-                          </div>
-                          <textarea
-                            value={pasteInput}
-                            onChange={(e) => setPasteInput(e.target.value)}
-                            placeholder={`예시:\n12/17 23:00 30 애들유나 : 웨스원더\n...`}
-                            className="w-full bg-slate-800 text-slate-300 text-xs p-3 rounded h-32 focus:outline-none focus:border-indigo-500 mb-3"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleBulkParse}
-                            className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold text-sm shadow-md"
-                          >
-                            ✨ 경기 자동 추출 및 카트에 담기
-                          </button>
-                      </div>
-                  )}
+        {/* --- PROTO MODE (Bulk Paste) --- */}
+        {mode === 'proto' && (
+            <div className="bg-slate-900 rounded-lg p-4 border border-indigo-500/50 mb-4">
+                <div className="flex justify-between items-center mb-2">
+                    <label className="text-indigo-400 text-xs font-bold">📋 배트맨/베트맨 사이트 경기 목록 붙여넣기</label>
+                </div>
+                <textarea
+                  value={pasteInput}
+                  onChange={(e) => setPasteInput(e.target.value)}
+                  placeholder={`[예시]\n307 12.28 (일) 17:00 마감 축구 A리그 일반 멜버시티 : 퍼스글로\n308 ... 핸디캡 ... H -1.0 ...\n(텍스트 전체를 붙여넣으면 유형별로 자동 인식합니다)`}
+                  className="w-full bg-slate-800 text-slate-300 text-xs p-3 rounded h-40 focus:outline-none focus:border-indigo-500 mb-3 leading-relaxed"
+                />
+                <button
+                  type="button"
+                  onClick={handleBulkParse}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold text-sm shadow-md transition-colors"
+                >
+                  ✨ 경기 자동 추출 및 리스트 추가
+                </button>
+            </div>
+        )}
 
-                  <div className="mt-4">
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* --- MANUAL MODE (Manual Input) --- */}
+        {mode === 'manual' && (
+            <div className="mb-4">
+                {/* Bulk Input Area in Manual Mode */}
+                <div className="bg-slate-900 rounded-lg p-4 border border-indigo-500/50 mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="text-indigo-400 text-xs font-bold">📋 경기 목록 붙여넣기 (자동 추출)</label>
+                    </div>
+                    <textarea
+                        value={pasteInput}
+                        onChange={(e) => setPasteInput(e.target.value)}
+                         placeholder={`[예시]\n307 12.28 (일) 17:00 마감 축구 A리그 일반 멜버시티 : 퍼스글로\n308 ... 핸디캡 ... H -1.0 ...\n(텍스트 전체를 붙여넣으면 유형별로 자동 인식합니다)`}
+                        className="w-full bg-slate-800 text-slate-300 text-xs p-3 rounded h-24 focus:outline-none focus:border-indigo-500 mb-3 leading-relaxed"
+                    />
+                    <button
+                        type="button"
+                        onClick={handleBulkParse}
+                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold text-sm shadow-md transition-colors"
+                    >
+                        ✨ 경기 자동 추출 및 리스트 추가
+                    </button>
+                </div>
+
+                {/* Existing Manual Inputs with Divider */}
+                <div className="border-t border-slate-700 pt-4">
+                    <label className="text-slate-400 text-xs font-bold mb-3 block">✍️ 직접 입력 추가</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
                         <input
-                          type="text"
-                          value={homeTeam}
-                          onChange={(e) => setHomeTeam(e.target.value)}
-                          onBlur={() => handleTeamBlur('home')}
-                          placeholder={getPlaceholder('home')}
-                          className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-emerald-500 text-sm"
-                          onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); addToCart(); } }}
+                            type="text"
+                            value={homeTeam}
+                            onChange={(e) => setHomeTeam(e.target.value)}
+                            onBlur={() => handleTeamBlur('home')}
+                            placeholder={getPlaceholder('home')}
+                            className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-emerald-500 text-sm"
+                            onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); addToCart(); } }}
                         />
                         <input
-                          type="text"
-                          value={awayTeam}
-                          onChange={(e) => setAwayTeam(e.target.value)}
-                          onBlur={() => handleTeamBlur('away')}
-                          placeholder={getPlaceholder('away')}
-                          className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-emerald-500 text-sm"
-                          onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); addToCart(); } }}
+                            type="text"
+                            value={awayTeam}
+                            onChange={(e) => setAwayTeam(e.target.value)}
+                            onBlur={() => handleTeamBlur('away')}
+                            placeholder={getPlaceholder('away')}
+                            className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-emerald-500 text-sm"
+                            onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); addToCart(); } }}
                         />
-                     </div>
-                     <button
+                    </div>
+                    
+                    <button
                         type="button"
                         onClick={addToCart}
-                        className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-emerald-400 border border-slate-600 border-dashed rounded-lg mb-4 flex items-center justify-center font-bold"
-                     >
+                        className="w-full py-2 bg-slate-700 hover:bg-slate-600 text-emerald-400 border border-slate-600 border-dashed rounded-lg flex items-center justify-center font-bold text-sm"
+                    >
                         + 리스트에 추가
-                     </button>
+                    </button>
+                </div>
+            </div>
+        )}
 
-                     <div className="flex items-center justify-end mb-2 space-x-4 bg-slate-900/50 p-3 rounded-lg border border-slate-700">
-                        <div className="flex items-center space-x-2">
-                            <label className="text-xs text-slate-400 font-bold">🎯 폴더(조합) 크기:</label>
+        {/* --- SHARED LIST (Proto & Manual) --- */}
+        {isBatchMode && (
+             <div className="mt-4">
+                 {/* Options visible ONLY in MANUAL mode */}
+                 {mode === 'manual' && (
+                 <div className="flex flex-col space-y-4 bg-slate-900/50 p-3 rounded-lg border border-slate-700 mb-4">
+                    
+                    {/* [NEW LOCATION] Game Type Selection for Batch */}
+                    <div className="flex flex-col">
+                         <label className="text-xs text-purple-400 font-bold mb-1">🎮 게임 유형 선택 (전체 적용)</label>
+                         <select
+                            value={targetGameType}
+                            onChange={(e) => setTargetGameType(e.target.value as GameType)}
+                            className="bg-slate-900 border border-purple-600 text-purple-400 text-xs rounded px-2 py-2 font-bold focus:outline-none w-full text-center"
+                        >
+                            <option value="General">일반 (승무패)</option>
+                            <option value="Handicap">핸디캡 (AI 자동 라인 설정)</option>
+                            <option value="UnOver">언더/오버 (AI 자동 기준점)</option>
+                            <option value="Sum">합 (홀/짝)</option>
+                            <option value="Mixed">혼합 (AI 추천 - 가장 확률 높은 유형 선택)</option>
+                        </select>
+                        <p className="text-[10px] text-slate-500 mt-1 text-center">
+                            * 혼합 선택 시 AI가 일반/핸디캡/언더오버 중 가장 유리한 배팅 유형을 자동으로 추천합니다.
+                        </p>
+                    </div>
+
+                    <div className="flex justify-between space-x-2 border-t border-slate-700/50 pt-2">
+                        <div className="flex flex-col flex-1">
+                            <label className="text-[10px] text-slate-400 font-bold mb-1 text-right">🎯 폴더(조합) 크기</label>
                             <select 
                                 value={folderCount}
                                 onChange={(e) => setFolderCount(Number(e.target.value))}
-                                className="bg-slate-900 border border-emerald-600 text-emerald-400 text-xs rounded px-2 py-1 font-bold focus:outline-none"
+                                className="bg-slate-900 border border-emerald-600 text-emerald-400 text-xs rounded px-2 py-1.5 font-bold focus:outline-none w-full text-right"
                             >
                                 <option value={2}>2폴더 (안전)</option>
                                 <option value={3}>3폴더 (밸런스)</option>
@@ -829,65 +908,68 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                             </select>
                         </div>
                         
-                        {/* [NEW] 4경기 이상일 때만 추천 조합 개수(베팅 숫자) 선택 가능 */}
-                        {cart.length >= 4 && (
-                            <div className="flex items-center space-x-2 animate-fade-in">
-                                <label className="text-xs text-blue-400 font-bold">🎫 베팅(조합) 개수:</label>
-                                <select 
-                                    value={recommendationCount}
-                                    onChange={(e) => setRecommendationCount(Number(e.target.value))}
-                                    className="bg-slate-900 border border-blue-600 text-blue-400 text-xs rounded px-2 py-1 font-bold focus:outline-none"
-                                >
-                                    {[1, 2, 3, 4, 5].map(num => (
-                                        <option key={num} value={num}>{num}개 조합 생성</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-                     </div>
-
-                     <div className="bg-slate-900/80 rounded-lg p-4 min-h-[100px] border border-slate-700">
-                        <h3 className="text-xs text-slate-400 font-bold mb-2 uppercase tracking-wider flex justify-between">
-                            <span>분석 대기 리스트 ({cart.length})</span>
-                            <span className="text-emerald-500">2경기 이상 권장</span>
-                        </h3>
-                        {cart.length === 0 ? (
-                            <p className="text-slate-600 text-sm text-center py-4">
-                                관심 있는 경기를 추가하세요.<br/>
-                                (여러 경기를 넣으면 AI가 옥석을 가려줍니다)
-                            </p>
-                        ) : (
-                            <ul className="space-y-2">
-                                {cart.map(item => (
-                                    <li key={item.id} className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700">
-                                        <div className="flex items-center space-x-2">
-                                            <span className="text-xs bg-slate-700 px-1.5 py-0.5 rounded text-slate-300 w-16 text-center truncate">{item.sport}</span>
-                                            <div>
-                                                <span className="text-sm font-bold text-white">{item.homeTeam}</span>
-                                                {item.homeTeamKo && <span className="text-xs text-slate-400 ml-1">({item.homeTeamKo})</span>}
-                                            </div>
-                                            <span className="text-xs text-slate-500">vs</span>
-                                            <div>
-                                                <span className="text-sm font-bold text-white">{item.awayTeam}</span>
-                                                {item.awayTeamKo && <span className="text-xs text-slate-400 ml-1">({item.awayTeamKo})</span>}
-                                            </div>
-                                        </div>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => removeFromCart(item.id)}
-                                            className="text-red-400 hover:text-red-300 p-1"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                    </li>
+                        <div className="flex flex-col flex-1">
+                            <label className="text-[10px] text-blue-400 font-bold mb-1 text-right">🎫 추천 조합 개수</label>
+                            <select 
+                                value={recommendationCount}
+                                onChange={(e) => setRecommendationCount(Number(e.target.value))}
+                                className="bg-slate-900 border border-blue-600 text-blue-400 text-xs rounded px-2 py-1.5 font-bold focus:outline-none w-full text-right"
+                            >
+                                {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                    <option key={num} value={num}>{num}개 세트</option>
                                 ))}
-                            </ul>
-                        )}
-                     </div>
-                </div>
+                            </select>
+                        </div>
+                    </div>
+                 </div>
+                 )}
+
+                 <div className="bg-slate-900/80 rounded-lg p-4 min-h-[100px] border border-slate-700">
+                    <h3 className="text-xs text-slate-400 font-bold mb-2 uppercase tracking-wider flex justify-between">
+                        <span>분석 대기 리스트 ({cart.length})</span>
+                        <span className="text-emerald-500">{mode === 'proto' ? '모든 경기 분석' : '2경기 이상 권장'}</span>
+                    </h3>
+                    {cart.length === 0 ? (
+                        <p className="text-slate-600 text-sm text-center py-4">
+                            {mode === 'proto' ? '위 입력창에 경기 목록을 붙여넣고 추출하세요.' : '관심 있는 경기를 추가하세요.'}<br/>
+                            (여러 경기를 넣으면 AI가 옥석을 가려줍니다)
+                        </p>
+                    ) : (
+                        <ul className="space-y-2">
+                            {cart.map(item => (
+                                <li key={item.id} className="flex justify-between items-center bg-slate-800 p-2 rounded border border-slate-700">
+                                    <div className="flex items-center space-x-2 overflow-hidden">
+                                        <div className="truncate flex flex-col">
+                                            <div className="flex items-center">
+                                                <span className="text-sm font-bold text-white">{item.homeTeam}</span>
+                                                <span className="text-xs text-slate-500 mx-1">vs</span>
+                                                <span className="text-sm font-bold text-white">{item.awayTeam}</span>
+                                            </div>
+                                            {(item.homeTeamKo || item.awayTeamKo) && (
+                                                <div className="text-[10px] text-slate-400 flex items-center space-x-1">
+                                                    {item.homeTeamKo && <span>{item.homeTeamKo}</span>}
+                                                    {item.homeTeamKo && item.awayTeamKo && <span>vs</span>}
+                                                    {item.awayTeamKo && <span>{item.awayTeamKo}</span>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => removeFromCart(item.id)}
+                                        className="text-red-400 hover:text-red-300 p-1 shrink-0 ml-2"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                 </div>
             </div>
         )}
 
+        {/* --- SINGLE MODE --- */}
         {mode === 'single' && (
           <div className="mt-4">
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -956,23 +1038,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
           </div>
         )}
 
-        {mode === 'synthesis' && (
-          <div className="space-y-6 bg-slate-900/50 p-6 rounded-lg border border-slate-700/50">
-             <div className="grid grid-cols-1 gap-6">
-                <div className="relative">
-                  <label className="block text-emerald-400 text-sm font-bold mb-2">📂 1. 맥락/뉴스 포함 분석</label>
-                  <input type="file" accept=".txt" onChange={(e) => handleFileUpload(e, 'context')} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer bg-slate-900 rounded-lg border border-slate-600" />
-                  {fileContent1 && <p className="mt-1 text-xs text-green-400">✓ 로드됨</p>}
-                </div>
-                <div className="relative">
-                  <label className="block text-blue-400 text-sm font-bold mb-2">📂 2. 맥락 미포함 (데이터)</label>
-                  <input type="file" accept=".txt" onChange={(e) => handleFileUpload(e, 'no-context')} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer bg-slate-900 rounded-lg border border-slate-600" />
-                  {fileContent2 && <p className="mt-1 text-xs text-green-400">✓ 로드됨</p>}
-                </div>
-             </div>
-          </div>
-        )}
-
         <div className="flex justify-end pt-2">
             <label className="flex items-center space-x-2 cursor-pointer bg-slate-900/80 px-3 py-2 rounded-lg border border-slate-700 hover:border-emerald-500 transition-colors">
                 <input 
@@ -987,9 +1052,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
 
         <button
           type="submit"
-          disabled={isLoading || (mode === 'cart' && cart.length < 2)}
+          disabled={isLoading || (isBatchMode && cart.length < 2)}
           className={`w-full font-bold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-[1.01] mt-2 ${
-            isLoading || (mode === 'cart' && cart.length < 2)
+            isLoading || (isBatchMode && cart.length < 2)
               ? 'bg-slate-600 cursor-not-allowed text-slate-300'
               : 'bg-emerald-600 hover:bg-emerald-500 text-white'
           }`}
@@ -1003,10 +1068,13 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
               분석 진행 중...
             </span>
           ) : (
-            mode === 'cart' 
-             ? `🚀 ${cart.length}경기 중 최고의 ${folderCount}폴더 조합 ${recommendationCount > 1 ? `x ${recommendationCount}개` : ''} 추천받기`
-             : (mode === 'single' ? '⚽ 정밀 분석 시작' : '📂 종합 분석 실행')
-          )}
+             mode === 'proto' 
+             ? `🚀 프로토 승부식 분석 실행 (전체 예측)` 
+             : (mode === 'manual'
+                ? `🎲 최고의 ${folderCount}폴더 조합 추천받기`
+                : '⚽ 정밀 분석 시작')
+             )
+          }
         </button>
       </form>
     </div>

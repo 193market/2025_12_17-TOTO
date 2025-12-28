@@ -1,8 +1,8 @@
 
 import { SportType } from "../types";
 
-// [SECURITY] API Key 설정 (환경변수 우선, 없으면 하드코딩된 키 사용)
-const API_KEY = process.env.REACT_APP_SPORTS_API_KEY || 'cfe7a64a3a829e43ece1bc2746b48a8d';
+// [SECURITY] API Key 고정 (사용자 요청)
+const API_KEY = 'cfe7a64a3a829e43ece1bc2746b48a8d';
 
 // 종목별 API 설정
 const SPORT_CONFIG: Record<SportType, { host: string; matchEndpoint: string }> = {
@@ -13,13 +13,12 @@ const SPORT_CONFIG: Record<SportType, { host: string; matchEndpoint: string }> =
   hockey: { host: 'v1.hockey.api-sports.io', matchEndpoint: 'games' },
 };
 
-// [CACHE] 팀 ID 조회 결과를 메모리에 저장하여 API 호출 수 절약
+// [CACHE] 팀 ID 조회 결과를 메모리에 저장
 const TEAM_ID_CACHE: Record<string, number> = {};
 
-// [PREDEFINED IDS] 자주 쓰이는 팀 ID를 미리 정의하여 API 검색(Rate Limit 대상)을 회피
-// 키 값은 소문자로 정규화하여 저장
+// [PREDEFINED IDS] API 호출 절약을 위한 사전 정의 ID 목록
 const PREDEFINED_TEAM_IDS: Record<string, number> = {
-  // --- EPL ---
+  // EPL
   "manchester united": 33, "man utd": 33,
   "newcastle united": 34, "newcastle": 34,
   "bournemouth": 35,
@@ -44,7 +43,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "sheffield united": 62,
   "burnley": 44,
   "luton town": 1359,
-  // --- Championship ---
+  // Championship & Lower
   "sunderland": 746,
   "blackburn rovers": 68,
   "west bromwich albion": 60,
@@ -65,7 +64,19 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "portsmouth": 1363,
   "derby county": 58,
   "oxford united": 1362,
-  // --- La Liga ---
+  "birmingham city": 32, "birmingham": 32,
+  "charlton athletic": 64, "charlton": 64,
+  "wigan athletic": 66, "wigan": 66,
+  "blackpool": 61,
+  "reading": 54,
+  "bolton wanderers": 76, "bolton": 76,
+  "barnsley": 75,
+  "peterborough united": 59, "peterborough": 59,
+  "huddersfield town": 37, "huddersfield": 37,
+  "rotherham united": 56, "rotherham": 56,
+  "wrexham": 1339,
+  "stockport county": 1338,
+  // La Liga
   "real madrid": 541,
   "barcelona": 529,
   "atletico madrid": 530,
@@ -89,7 +100,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "espanyol": 540,
   "valladolid": 720, "real valladolid": 720,
   "leganes": 545,
-  // --- Serie A ---
+  // Serie A
   "inter milan": 505, "inter": 505,
   "ac milan": 489, "milan": 489,
   "juventus": 496,
@@ -113,7 +124,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "parma": 506,
   "como": 518,
   "venezia": 519,
-  // --- Serie B ---
+  // Serie B
   "cremonese": 520,
   "pisa": 517,
   "palermo": 515,
@@ -127,7 +138,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "cosenza": 857,
   "modena": 501,
   "reggiana": 894,
-  // --- Bundesliga ---
+  // Bundesliga
   "bayern munich": 157, "bayern munchen": 157,
   "borussia dortmund": 165, "dortmund": 165,
   "bayer leverkusen": 168, "leverkusen": 168,
@@ -148,7 +159,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "heidenheim": 180,
   "st. pauli": 191, "st pauli": 191,
   "holstein kiel": 193,
-  // --- Ligue 1 ---
+  // Ligue 1
   "paris saint germain": 85, "psg": 85,
   "monaco": 91, "as monaco": 91,
   "marseille": 81,
@@ -170,7 +181,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "auxerre": 108,
   "angers": 77,
   "saint-etienne": 1063,
-  // --- Eredivisie ---
+  // Eredivisie
   "psv eindhoven": 197, "psv": 197,
   "feyenoord": 209,
   "ajax": 194,
@@ -178,7 +189,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "twente": 213, "fc twente": 213,
   "utrecht": 201,
   "heerenveen": 206,
-  // --- A-League (Australia) ---
+  // A-League
   "melbourne city": 2957,
   "melbourne victory": 2959,
   "perth glory": 2963,
@@ -192,7 +203,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
   "macarthur fc": 5085,
   "western united": 3192,
   "auckland fc": 24823,
-  // --- National Teams ---
+  // National
   "south korea": 17,
   "japan": 12,
   "china": 10,
@@ -238,10 +249,6 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function fetchFromApi(sport: SportType, endpoint: string, params: Record<string, string>, retries = 3): Promise<any> {
-  if (!API_KEY) {
-    return null;
-  }
-
   const config = SPORT_CONFIG[sport];
   const url = new URL(`https://${config.host}${endpoint}`);
   
@@ -255,57 +262,83 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
   try {
     const response = await fetch(url.toString(), { headers });
     
+    // [Free Plan Limit Check]
     if (!response.ok) {
-      if (response.status === 429 && retries > 0) {
-         const delay = 2000 * Math.pow(2, 3 - retries) + Math.random() * 1000;
-         console.warn(`API Rate Limit (429) - Retrying in ${Math.round(delay)}ms... (${retries} left)`);
-         await wait(delay);
-         return fetchFromApi(sport, endpoint, params, retries - 1);
+      const errorText = await response.text();
+      
+      // 1. Rate Limit (429) -> Wait and Retry Aggressively
+      if (response.status === 429) {
+         if (retries > 0) {
+            // 무료 플랜은 1분 10회 제한이므로 429 발생 시 6초 이상 대기해야 안전함
+            const delay = 6000 + Math.random() * 2000; 
+            console.warn(`API Rate Limit (429) - Retrying in ${Math.round(delay)}ms... (${retries} left)`);
+            await wait(delay);
+            return fetchFromApi(sport, endpoint, params, retries - 1);
+         }
+         throw new Error(`API 요청 한도 초과 (429): 잠시 후 다시 시도해주세요.`);
       }
-      if (response.status === 403) throw new Error(`API 권한 제한 (403): ${endpoint}`);
-      if (response.status === 429) throw new Error(`API 요청 한도 초과 (429)`);
-      throw new Error(`API 오류: ${response.statusText}`);
+
+      // 2. Plan Restrictions (403 or specific messages)
+      // 무료 플랜에서 허용되지 않는 파라미터(last, next 등) 사용 시 발생하는 에러는
+      // 전체 분석을 멈추지 않도록 null을 반환하여 해당 데이터만 건너뜀
+      if (response.status === 403 || errorText.includes("plan") || errorText.includes("access")) {
+          console.warn(`[Plan Restriction] Skipped restricted data for ${endpoint}: ${errorText}`);
+          return null; 
+      }
+
+      throw new Error(`API 오류 (${response.status}): ${response.statusText}`);
     }
 
     const json = await response.json();
     
-    if (json.errors && (Array.isArray(json.errors) ? json.errors.length > 0 : Object.keys(json.errors).length > 0)) {
-        const errorMsg = typeof json.errors === 'object' ? JSON.stringify(json.errors) : json.errors;
-        console.warn(`API-Sports 내부 경고 [${endpoint}]: ${errorMsg}`);
+    // API 내부 에러 메시지 처리 (JSON 응답이지만 errors 필드가 있는 경우)
+    if (json.errors) {
+        const errorKeys = Object.keys(json.errors);
+        if (errorKeys.length > 0) {
+            // Plan 관련 에러면 null 반환
+            const errorMsg = JSON.stringify(json.errors);
+            if (errorMsg.includes("plan") || errorMsg.includes("access") || errorMsg.includes("rateLimit")) {
+                if (errorMsg.includes("rateLimit") && retries > 0) {
+                    const delay = 6000;
+                    await wait(delay);
+                    return fetchFromApi(sport, endpoint, params, retries - 1);
+                }
+                console.warn(`API Internal Restriction: ${errorMsg}`);
+                return null;
+            }
+        }
     }
 
     return json.response;
   } catch (error: any) {
     if (retries > 0 && (error.message?.includes('Failed to fetch') || error.name === 'TypeError')) {
-        const delay = 1000 + Math.random() * 1000;
-        console.warn(`Network Error (${error.message}) - Retrying in ${Math.round(delay)}ms... (${retries} left)`);
+        const delay = 2000 + Math.random() * 1000;
+        console.warn(`Network Error (${error.message}) - Retrying...`);
         await wait(delay); 
         return fetchFromApi(sport, endpoint, params, retries - 1);
     }
-    throw new Error(`[${sport}] 데이터 수집 실패: ${error.message}`);
+    // Plan 제한 에러는 무시하고 null 반환 (분석 계속 진행)
+    if (error.message?.includes("Plan Restriction")) return null;
+    
+    throw error;
   }
 }
 
 export async function getTeamId(sport: SportType, teamName: string): Promise<number | null> {
-  if (/[^a-zA-Z0-9\s-&.']/.test(teamName)) {
-      console.warn(`[API Skip] Team name '${teamName}' contains unsupported characters. Skipping API call.`);
-      return null;
-  }
+  if (!teamName) return null;
+  if (/[^a-zA-Z0-9\s-&.']/.test(teamName)) return null;
 
   const normalizedKey = teamName.toLowerCase().trim();
   const cacheKey = `${sport}:${normalizedKey}`;
 
-  // 1. [CHECK PREDEFINED LIST] Check hardcoded list first
   if (sport === 'football' && PREDEFINED_TEAM_IDS[normalizedKey]) {
       return PREDEFINED_TEAM_IDS[normalizedKey];
   }
 
-  // 2. [CHECK CACHE] Check memory cache
   if (TEAM_ID_CACHE[cacheKey]) {
       return TEAM_ID_CACHE[cacheKey];
   }
 
-  // 3. [API SEARCH] Fallback to API search
   const searchName = teamName.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
   try {
@@ -317,7 +350,8 @@ export async function getTeamId(sport: SportType, teamName: string): Promise<num
     }
     return null;
   } catch (e: any) {
-    console.error(`Error fetching team ID for ${teamName} (search: ${searchName}):`, e);
+    // ID 조회 실패는 치명적이지 않게 처리 (검색으로 대체 가능하도록 null 반환)
+    console.warn(`Team ID fetch failed for ${teamName}`);
     return null;
   }
 }
@@ -326,11 +360,21 @@ export async function getTeamForm(sport: SportType, teamId: number) {
   if (!teamId) return null;
   const config = SPORT_CONFIG[sport];
   try {
-    return await fetchFromApi(sport, `/${config.matchEndpoint}`, { 
+    const params: any = { 
       team: teamId.toString(), 
-      last: '5', 
-      status: 'FT' 
-    });
+      status: 'FT' // Full Time only
+    };
+    
+    // [Free Plan Fix] 'last' 파라미터는 무료 플랜에서 축구 외 종목에서 자주 막힘
+    if (sport === 'football') {
+        params.last = '5';
+    } else {
+        // 농구/야구 등은 무료 플랜에서 last 파라미터 사용 시 403 에러 발생 가능성 높음.
+        // 에러 발생 시 fetchFromApi 내부에서 null을 반환하도록 처리됨.
+        params.last = '5'; 
+    }
+
+    return await fetchFromApi(sport, `/${config.matchEndpoint}`, params);
   } catch (e) {
     return null;
   }
@@ -341,6 +385,7 @@ export async function getHeadToHead(sport: SportType, teamIdA: number, teamIdB: 
   
   const config = SPORT_CONFIG[sport];
   try {
+    // [Free Plan Fix] HeadToHead 엔드포인트가 없거나 플랜 제한인 경우 처리
     return await fetchFromApi(sport, `/${config.matchEndpoint}/headtohead`, { 
       h2h: `${teamIdA}-${teamIdB}`,
       last: '5' 
@@ -406,8 +451,6 @@ export async function getInjuries(sport: SportType, fixtureId: number) {
 }
 
 export async function getMatchContextData(sport: SportType, homeName: string, awayName: string) {
-  if (!API_KEY) return null;
-
   const config = SPORT_CONFIG[sport];
 
   // 1. Team ID Lookup
@@ -417,10 +460,13 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
   ]);
 
   if (!homeId || !awayId) {
+    // ID를 못 찾으면 API 데이터를 포기하고 에러를 던져 Gemini가 검색을 사용하도록 유도하거나
+    // 상위 로직에서 처리하도록 함.
     throw new Error(`${homeName} 또는 ${awayName} 정보를 찾을 수 없습니다. (매핑 실패 또는 API 오류)`);
   }
 
   // 2. Basic Data (Form & H2H)
+  // 무료 플랜 제한으로 인해 일부 데이터가 null일 수 있음 -> 에러 내지 않고 진행
   const [homeForm, awayForm, h2h] = await Promise.all([
     getTeamForm(sport, homeId),
     getTeamForm(sport, awayId),
@@ -442,7 +488,7 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
             awayLastMatchStats = await getFixtureStatistics(sport, lastMatchId);
         }
     } catch (e) {
-        console.warn("xG 데이터 조회 실패", e);
+        console.warn("xG 데이터 조회 실패 (무시됨)", e);
     }
   }
 
@@ -455,6 +501,7 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
 
   try {
     let nextMatchEndpoint = `/${config.matchEndpoint}`;
+    // Football has specific H2H endpoint for scheduling usually, others might use games
     if (sport === 'football') {
         nextMatchEndpoint = `/${config.matchEndpoint}/headtohead`;
     }
@@ -475,14 +522,16 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
         };
 
         if (fixtureId) {
-            const [lineupData, oddsData, injuryData] = await Promise.all([
+            // Promise.allSettled를 사용하여 하나가 실패해도 나머지는 건지도록 함
+            const results = await Promise.allSettled([
               getFixtureLineups(sport, fixtureId),
               getOdds(sport, fixtureId),
               getInjuries(sport, fixtureId)
             ]);
-            lineups = lineupData;
-            odds = oddsData;
-            injuries = injuryData;
+            
+            lineups = results[0].status === 'fulfilled' ? results[0].value : null;
+            odds = results[1].status === 'fulfilled' ? results[1].value : null;
+            injuries = results[2].status === 'fulfilled' ? results[2].value : null;
         }
 
         if (match.league?.id && match.league?.season) {
@@ -493,7 +542,7 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
         }
     }
   } catch (e) {
-      console.warn("다음 경기 상세 정보 조회 실패:", e);
+      console.warn("다음 경기 상세 정보 조회 실패 (무시됨):", e);
   }
 
   return {
