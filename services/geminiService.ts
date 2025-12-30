@@ -1,51 +1,60 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { MatchData, CartItem, BatchAnalysisResult, GameType } from "../types";
 import { getMatchContextData } from "./footballApi";
 
-// [SYSTEM INSTRUCTION UPDATED] 
-// 2025-12-27 버전: 과도한 역배당/이변 강요(Contrarian) 로직을 제거하고,
-// 데이터와 배당 가치(Value)를 중시하는 정석적인 분석 로직으로 복원.
+// [SYSTEM INSTRUCTION UPDATED - DEBATE MODE] 
+// 2025-12-27 버전 (Paid Plan): 중립 분석 대신 '대립 토론(Debate)' 시스템 도입
 const SYSTEM_INSTRUCTION = `
 **Role (역할)**
-당신은 **MatchInsight AI**의 수석 분석가입니다. 당신은 혼자 생각하지 않고, 내부적으로 **3명의 전문 에이전트**를 소환하여 토론을 거친 뒤 최종 결론을 내립니다.
+당신은 **MatchInsight Sports Court**의 수석 재판관(Chief Judge)입니다.
+당신은 단순히 경기 결과를 예측하는 것이 아니라, 다음 **3명의 전문가들의 치열한 토론(Debate)**을 듣고 판결을 내리는 역할을 합니다.
 
-**Language Guideline**
-모든 분석 결과와 최종 판단은 **반드시 한국어(Korean)**로 작성하십시오.
+**The 3 Agents (전문가 패널 - 대립 토론)**
 
-**The 3 Agents (전문가 패널)**
-1.  **🕵️ Agent A (Data Miner):** 감정을 배제하고 오직 **데이터(xG, 점유율, H2H)**만 봅니다. 최근 경기력의 '질(Quality)'에 집중합니다.
-2.  **📰 Agent B (News Analyst):** Google Search를 통해 **최신 뉴스, 부상자, 라커룸 이슈, 동기부여** 등 정성적 변수를 체크합니다.
-    - **중요:** 검색 결과가 없거나 정보가 부족할 경우, 절대 생략하지 말고 "특이사항 없음" 또는 "검색 정보 부족"이라고 명시하십시오.
-3.  **💰 Agent C (Oddsmaker):** **배당률(Odds)**과 **대중 투표율(Public Vote)**을 분석합니다.
-    - 투표율 쏠림에 휩쓸리지 않고, **배당률 대비 확률(Expected Value)**이 높은 합리적인 선택을 합니다.
-    - 데이터가 뒷받침되지 않는 인기 팀(똥배당)을 경계하되, 무조건적인 역배당을 추구하지는 않습니다.
+1.  **🔴 Agent Red (홈팀 변호인단 - Home Advocate):** 
+    - **역할:** 철저하게 **[홈팀]**의 입장에서 변호합니다.
+    - **논리:** 홈팀의 최근 상승세, 홈 이점, 상대 전적 우위, 긍정적인 뉴스(부상 복귀 등)를 강조합니다.
+    - **공격:** 원정팀의 약점, 최근 부진, 원정 징크스, 불화설 등을 집요하게 파고듭니다.
+    - **목표:** "홈팀 승리" 또는 "홈팀 지지 않는 흐름"을 설득하는 것.
 
-**Process (사고 과정)**
-각 에이전트가 자신의 관점에서 분석한 뒤, 당신(Moderator)이 이를 종합하여 **'적중률 높은 결론'**으로 합의(Synthesis)하십시오.
-⚠️ **중요 지침:** 배당률(Odds) 데이터가 없거나 'Unknown'인 경우에도 절대 '분석 불가'나 'Skip' 판정을 내리지 마십시오. 이 경우 Agent A(Data)와 Agent B(News)의 분석 비중을 높여 반드시 승패를 예측하십시오.
+2.  **🔵 Agent Blue (원정팀 변호인단 - Away Advocate):**
+    - **역할:** 철저하게 **[원정팀]**의 입장에서 변호합니다.
+    - **논리:** 원정팀의 전술적 상성, 최근 득점력, 배당 대비 가치(Value), 홈팀의 거품을 지적합니다.
+    - **공격:** 홈팀의 부상 공백, 체력 저하, 최근 패배의 충격 등을 공격합니다.
+    - **목표:** "원정팀 승리" 또는 "무승부"를 설득하여 홈팀 승리를 막는 것.
+
+3.  **💰 Agent Green (중립 배당/시장 분석관 - Oddsmaker):**
+    - **역할:** 감정을 배제하고 **시장(Market)**을 분석합니다.
+    - **논리:** 현재 배당률이 적정한지(Fair Odds), 투표율이 쏠린 '함정(Trap)'인지 판단합니다.
+    - **목표:** 어느 쪽의 주장이 배당률 대비 '돈이 되는 선택(Expected Value)'인지 조언합니다.
+
+**Process (진행 방식)**
+1.  **Fact Check:** 제공된 데이터(API)와 검색 결과(News)를 확인합니다.
+2.  **Debate:** Red와 Blue가 서로의 데이터를 반박하며 치열하게 싸웁니다. (예: Red "우린 3연승이야!" vs Blue "그거 다 꼴찌팀 상대로 이긴 거잖아!")
+3.  **Verdict:** 당신(Moderator)이 양측의 주장을 종합하여 최종 승패를 판결합니다.
 
 **Output Format (Markdown)**
-다음 형식을 엄격히 준수하십시오.
+다음 형식을 엄격히 준수하십시오. 모든 텍스트는 **한국어(Korean)**입니다.
 
 ---
-### 🏟️ [종목] Ensemble 분석: [홈팀] vs [원정팀]
+### 🏟️ [종목] 법정 공방: [홈팀] vs [원정팀]
 > **경기 정보:** [일시/리그] | **시장 배당:** [홈승 / 무 / 패]
 
-### 🗳️ 전문가 합의 (Ensemble Result)
-- **최종 판단:** (3명의 의견을 종합한 결론. 예: "데이터상 홈팀의 우세가 뚜렷하며, 배당 흐름도 이를 지지함.")
-- **합의된 승률:** 홈 [XX]% / 무 [XX]% / 원정 [XX]%
+### ⚖️ 최종 판결 (The Verdict)
+- **판결 요약:** (재판관으로서 내린 최종 결론. 예: "원정팀 변호인의 '상성 우위' 주장이 더 설득력 있음.")
+- **예상 승률:** 홈 [XX]% / 무 [XX]% / 원정 [XX]%
 
-### 📊 xG 기반 경기력 분석 (Agent A)
-- **Data Insight:** (제공된 xG 데이터나 최근 스탯을 기반으로, 득점 불운이나 거품이 있는지 분석)
-- **최근 폼 평가:** (단순 승패가 아닌 경기 내용의 질 평가)
+### 🔴 홈팀 변호인단 (Home Advocate)
+- **변론 요지:** (홈팀이 이길 수밖에 없는 이유 강력 주장)
+- **공격 포인트:** (원정팀의 치명적 약점 지적)
 
-### 📰 변수 & 리스크 체크 (Agent B)
-- **News/Issue:** (검색된 부상자, 결장자, 감독 인터뷰 등)
-- **Risk Factor:** (승부를 뒤집을 만한 치명적 변수)
+### 🔵 원정팀 변호인단 (Away Advocate)
+- **변론 요지:** (홈팀의 불안요소 폭로 및 원정팀의 승리/무승부 가능성 주장)
+- **반박:** (홈팀 주장의 허점 찌르기)
 
-### 💰 배당 밸류 & 전략 (Agent C)
-- **Odds Analysis:** (배당 흐름 및 투표율 분석)
-- **Betting Tip:** (주력 픽과 부주력/보험 픽 제안)
+### 💰 중립 배당 분석관 (Market Expert)
+- **Odds Check:** (배당 흐름 및 투표율 분석)
+- **Smart Pick:** (배당 대비 가치가 높은 쪽 추천)
 
 ### 🏁 최종 픽 (Final Pick)
 - **Main:** [홈승 / 무승부 / 원정승 / 언더 / 오버]
@@ -72,16 +81,17 @@ const SYSTEM_INSTRUCTION = `
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function generateWithRetry(ai: GoogleGenAI, params: any, maxRetries = 5) {
+async function generateWithRetry(ai: GoogleGenAI, params: any, maxRetries = 2) { // Retries reduced for Paid Plan
   let attempt = 0;
   while (attempt < maxRetries) {
     try {
       return await ai.models.generateContentStream(params);
     } catch (error: any) {
       attempt++;
+      // [PAID PLAN] 429 에러 대응 완화 (대기 시간 단축)
       if (error.status === 429 || error.code === 429 || error.message?.includes('429')) {
-        const delay = 2000 * Math.pow(2, attempt - 1);
-        console.warn(`Gemini 429 Error (Attempt ${attempt}/${maxRetries}). Waiting ${delay}ms...`);
+        const delay = 1000; // 1초만 대기
+        console.warn(`Gemini 429 Error (Attempt ${attempt}/${maxRetries}). Quick retry...`);
         if (attempt >= maxRetries) throw error;
         await wait(delay);
         continue;
@@ -108,17 +118,17 @@ export const analyzeMatch = async (
   if (matchData.uploadedContent) {
     const { contextAnalysis, noContextAnalysis } = matchData.uploadedContent;
     let synthesisPrompt = `
-      [임무] 두 개의 분석 리포트를 'Ensemble Prompting' 기법으로 교차 검토하여 최종 결론을 도출하십시오.
+      [임무] 두 개의 분석 리포트를 'Debate(토론)' 형식으로 재구성하여 최종 판결을 내리십시오.
       
       [Report A - Context]: ${contextAnalysis}
       [Report B - Data]: ${noContextAnalysis}
       
-      Agent A, B, C의 관점을 모두 적용하여 가장 합리적인 결론을 내리세요.
+      Red(홈팀), Blue(원정팀), Green(배당) 에이전트의 관점을 적용하여 치열한 토론 후 결론을 내리세요.
       **주의: 최종 결과는 반드시 한국어로 작성하십시오.**
     `;
 
     if (matchData.useAutoSearch) {
-        synthesisPrompt += `\n\n[System Command] Agent B(News Analyst)는 Google Search를 사용하여 현재 시점의 최신 이슈를 팩트체크하고 반영하십시오.`;
+        synthesisPrompt += `\n\n[System Command] Green Agent는 Google Search를 사용하여 현재 시점의 최신 이슈를 팩트체크하고 토론에 반영하십시오.`;
     }
 
     try {
@@ -127,7 +137,7 @@ export const analyzeMatch = async (
         contents: synthesisPrompt,
         config: { 
             systemInstruction: SYSTEM_INSTRUCTION, 
-            temperature: 0.1,
+            temperature: 0.2, // 창의적인 토론을 위해 약간 높임
             tools: tools 
         },
       });
@@ -168,30 +178,30 @@ export const analyzeMatch = async (
 
   if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
 
-  let prompt = `[${matchData.sport}] Ensemble 분석 요청: ${matchData.homeTeam} vs ${matchData.awayTeam}.\n사용자 메모: ${matchData.context || "없음"}`;
+  let prompt = `[${matchData.sport}] 'Sports Court' 법정 개정 요청: ${matchData.homeTeam} vs ${matchData.awayTeam}.\n사용자 메모: ${matchData.context || "없음"}`;
 
   if (matchData.trainingData && matchData.trainingData.length > 0) {
     prompt += `\n\n=== 🧠 Reference Style ===\n`;
     matchData.trainingData.slice(0, 3).forEach((data, index) => {
-        prompt += `\n[Sample ${index + 1}]\n${data.substring(0, 1000)}...\n`;
+        prompt += `\n[Sample ${index + 1}]\n${data.substring(0, 1000)}... (참고하여 톤앤매너 유지)\n`;
     });
   }
 
   if (sportsData) {
     prompt += `
-      \n\n### ⚡ Data Source for Agent A (Data Miner):
+      \n\n### ⚡ Evidence for the Court (증거 자료):
       - **Home Team Last Match Stats (xG included if available):** ${JSON.stringify(sportsData.homeTeam.lastMatchStats) || "No advanced stats"}
       - **Away Team Last Match Stats (xG included if available):** ${JSON.stringify(sportsData.awayTeam.lastMatchStats) || "No advanced stats"}
-      - **H2H (Last 5):** ${JSON.stringify(sportsData.headToHead) || "API Plan Restricted"}
+      - **H2H (Last 5):** ${JSON.stringify(sportsData.headToHead) || "No H2H data"}
       - **League Standings:** ${JSON.stringify(sportsData.standings) || "Not Available"}
-      - **Home Recent Form:** ${JSON.stringify(sportsData.homeTeam.recentMatches) || "API Plan Restricted"}
-      - **Away Recent Form:** ${JSON.stringify(sportsData.awayTeam.recentMatches) || "API Plan Restricted"}
+      - **Home Recent Form:** ${JSON.stringify(sportsData.homeTeam.recentMatches) || "No form data"}
+      - **Away Recent Form:** ${JSON.stringify(sportsData.awayTeam.recentMatches) || "No form data"}
 
-      ### ⚡ Data Source for Agent C (Oddsmaker):
+      ### ⚡ Market Data (Agent Green):
       - **Next Match Info:** ${JSON.stringify(sportsData.meta)}
       - **OFFICIAL BOOKMAKER ODDS:** ${JSON.stringify(sportsData.matchDetails.odds) || "Unknown (Odds data unavailable)"}
       
-      ### ⚡ Data Source for Agent B (News):
+      ### ⚡ News Data (Fact Check):
       - **Official Injuries:** ${JSON.stringify(sportsData.matchDetails.injuries)}
       - **Predicted Lineups:** ${JSON.stringify(sportsData.matchDetails.lineups)}
     `;
@@ -200,7 +210,7 @@ export const analyzeMatch = async (
   }
 
   if (matchData.useAutoSearch) {
-      prompt += `\n\n[System Command] Agent B는 Google Search 도구를 사용하여 '${matchData.homeTeam} vs ${matchData.awayTeam} preview prediction injuries'를 검색하고 최신 정보를 확보하십시오.`;
+      prompt += `\n\n[System Command] 각 변호인단은 Google Search를 사용하여 '${matchData.homeTeam} vs ${matchData.awayTeam} preview prediction injuries'를 검색하고, 검색된 최신 뉴스를 근거로 변론을 펼치십시오.`;
   }
 
   try {
@@ -210,7 +220,7 @@ export const analyzeMatch = async (
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         tools: tools,
-        temperature: 0.2, // 분석 정확도를 위해 낮게 유지
+        temperature: 0.25, // 토론의 다양성을 위해 약간 높임
       },
     });
 
@@ -233,13 +243,13 @@ export const analyzeMatch = async (
   } catch (error: any) {
     if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
     let msg = error.message || "분석 실패";
-    if (msg.includes('429')) msg = "현재 요청량이 많아 분석이 지연되고 있습니다 (429). 잠시 후 다시 시도해주세요.";
+    if (msg.includes('429')) msg = "API 요청 과부하 (429). 잠시 후 다시 시도해주세요.";
     throw new Error(msg);
   }
 };
 
 /**
- * [BATCH UPDATE] 조합 추천 및 전체 분석 기능 지원
+ * [BATCH UPDATE] 조합 추천 및 전체 분석 기능 지원 (Paid Plan Optimized)
  */
 export const recommendCombination = async (
   cartItems: CartItem[], 
@@ -249,8 +259,8 @@ export const recommendCombination = async (
   recommendationCount: number = 1,
   useAutoSearch: boolean = false,
   signal?: AbortSignal,
-  analysisMode: 'combination' | 'all' = 'combination', // [NEW] Mode: 'combination' (subset) or 'all' (full list)
-  targetGameType: GameType = 'General' // [NEW] Global Game Type Setting
+  analysisMode: 'combination' | 'all' = 'combination', 
+  targetGameType: GameType = 'General'
 ): Promise<BatchAnalysisResult> => {
   if (!apiKey) throw new Error("API 키가 필요합니다.");
   if (cartItems.length < 2) throw new Error(`최소 2경기 이상이 필요합니다.`);
@@ -258,18 +268,19 @@ export const recommendCombination = async (
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-pro-preview";
 
-  const BATCH_SIZE = 1; // Rate limit protection
+  // [PAID PLAN] Batch size reduced to 2 to prevent browser connection saturation
+  const BATCH_SIZE = 2; 
   const enrichedMatches: {item: CartItem, data: any}[] = [];
   
-  onStatusUpdate(`데이터 수집 시작 (총 ${cartItems.length}경기) - API 안정성을 위해 순차 처리 중...`);
+  onStatusUpdate(`데이터 수집 시작 (총 ${cartItems.length}경기) - 안정적인 고속 모드...`);
 
   let completedCount = 0;
   
   for (let i = 0; i < cartItems.length; i += BATCH_SIZE) {
     if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
     
-    // [MODIFIED] No delay for Paid Plan
-    // if (i > 0) await wait(100); 
+    // Brief pause to reset connection pool
+    if (i > 0) await wait(200); 
 
     const chunk = cartItems.slice(i, i + BATCH_SIZE);
     
@@ -296,7 +307,7 @@ export const recommendCombination = async (
   if (signal?.aborted) throw new Error("사용자에 의해 분석이 중지되었습니다.");
 
   const modeText = analysisMode === 'all' 
-    ? "프로토 승부식 분석 (Proto Match Prediction)" 
+    ? "프로토 승부식 전체 예측 (Debate Mode)" 
     : `${recommendationCount}개의 최적 ${folderCount}폴더 조합 추천`;
 
   onStatusUpdate(`Gemini가 ${modeText}을(를) 수행 중입니다... (Auto-Search: ${useAutoSearch ? 'ON' : 'OFF'})`);
@@ -304,128 +315,59 @@ export const recommendCombination = async (
   const isProtoMode = analysisMode === 'all';
   const isMixedMode = targetGameType === 'Mixed';
 
-  // [PROMPT CONSTRUCTION] - Dynamic Instruction based on Mode
+  // [PROMPT CONSTRUCTION]
   let typeSpecificInstruction = '';
 
   if (isMixedMode) {
       typeSpecificInstruction = `
-      **[GLOBAL SETTING: MIXED MODE (혼합 추천)]**
-      사용자가 '혼합(Mixed)' 유형을 선택했습니다.
-      **MISSION:** 각 경기에 대해 General, Handicap, UnOver 중 **가장 적중 확률이 높고 EV(기대값)가 좋은 유형**을 AI가 스스로 선택하여 추천하십시오.
-      
-      🚨 **[CRITICAL OUTPUT RULE for Mixed Mode]** 🚨
-      The 'gameType' field in your JSON output MUST be the specific type you chose (e.g., "General", "Handicap", "UnOver").
-      **DO NOT return "Mixed" as the gameType.**
-      
-      - If you choose **Handicap**:
-        1. Set 'gameType': "Handicap"
-        2. Set 'criteria': The specific handicap line (e.g. -1.0, +2.5) you are betting on.
-      
-      - If you choose **UnOver** (Under/Over):
-        1. Set 'gameType': "UnOver"
-        2. Set 'criteria': The total goals line (e.g. 2.5, 3.5).
-        
-      - If you choose **General**:
-        1. Set 'gameType': "General"
+      **[GLOBAL SETTING: MIXED MODE]**
+      Mission: Choose the best winning probability type among General, Handicap, and UnOver.
+      Constraints: 
+      - If 'Handicap' is chosen, set 'gameType': "Handicap" and provide 'criteria'.
+      - If 'UnOver' is chosen, set 'gameType': "UnOver" and provide 'criteria'.
+      - If 'General' is chosen, set 'gameType': "General".
       `;
   } else if (isProtoMode) {
-      // [UPDATE] 3-Step Strategy for Proto Mode - BUDGET CONTROL ADDED
       typeSpecificInstruction = `
-      **[GLOBAL SETTING: PROTO MATCH PREDICTION - BUDGET CONTROL]**
-      
-      **YOUR MISSION:** 
-      Analyze each match INDIVIDUALLY using the 3-Step Strategy (Axis/Trap/Eraser).
-      
-      🚨 **[CRITICAL BUDGET CONSTRAINT - MAX 10 COMBINATIONS]** 🚨
-      - The user complained that **64 combinations (2^6)** is too expensive.
-      - You must keep the total combinations **UNDER 10**.
-      - **MATHEMATICAL LIMIT:** You are allowed **MAXIMUM 3 MATCHES** with Double Chance (e.g., "승/무") output. (2^3 = 8 combos < 10).
-      - **STRATEGY:**
-         1. **PRIORITIZE:** Identify the **TOP 3 most critical 'TRAP' or 'ERASER'** matches that absolutely require insurance (Double Chance).
-         2. **FORCE DECISION:** For **ALL OTHER MATCHES** (even if they are 'TRAP' or 'ERASER'), you **MUST** predict a **SINGLE OUTCOME** (Home, Draw, or Away). Pick the outcome with the highest expected value.
-         3. **DO NOT** output "승/무/패" (Triple Chance) for any match. It is too expensive.
-      
-      **STRATEGY LABELS:**
-      - **💎 AXIS (축):** Strong Favorite. Predict Single Outcome.
-      - **💣 TRAP (함정):** Risky Favorite. Predict Double Chance (Only if within Max 3 limit) OR Force Single Outcome (Risk).
-      - **🧹 ERASER (지우개):** Chaos. Predict Double Chance (Only if within Max 3 limit) OR Force Single Outcome (High Risk).
-      
-      **Reasoning Format:** "🕵️Data: ... \n📰News: ... \n💰Odds: ..." (Strictly follow this).
+      **[GLOBAL SETTING: PROTO PREDICTION (DEBATE MODE)]**
+      Mission: Analyze each match with the 'Debate System'.
+      Constraints:
+      - Max 10 combinations total (Limit Double Chance "승/무" usage).
+      - Prioritize High EV (Expected Value) picks derived from the debate.
       `;
   } else {
-      // Manual Combination Mode with Single Target Type (Existing Logic)
       typeSpecificInstruction = `
       **[GLOBAL SETTING: TARGET GAME TYPE = '${targetGameType}']**
-      
-      🚨 **[CRITICAL INSTRUCTION - STRICT TYPE ENFORCEMENT]** 🚨
-      
-      You MUST strictly adhere to the [TARGET TYPE] for each game.
-      The user has manually selected a game type, and you must NOT deviate.
-
-      -----------------------------------------------------------------------------------
-      👉 IF [TARGET TYPE] IS "Handicap":
-         1. **Meaning:** Apply the [FIXED CRITERIA] (e.g. 2.5) to the Home Team's score.
-            - Example: "Home (2.5)" means Home starts with +2.5 goals advantage.
-            - **IT IS NOT OVER/UNDER. DO NOT PREDICT TOTAL GOALS.**
-         2. **REQUIRED OUTPUT:** You MUST output one of: "핸디승", "핸디무", "핸디패".
-         3. **FORBIDDEN:** Do NOT output "오버" or "언더". This is a syntax error.
-      -----------------------------------------------------------------------------------
-      👉 IF [TARGET TYPE] IS "UnOver" (언더오버):
-         1. **Meaning:** Total goals vs [FIXED CRITERIA] (e.g. 2.5).
-         2. **REQUIRED OUTPUT:** You MUST output one of: "오버", "언더".
-         3. **FORBIDDEN:** Do NOT output "승", "무", "패", "핸디승".
-      -----------------------------------------------------------------------------------
-      👉 IF [TARGET TYPE] IS "General" (일반):
-         1. **REQUIRED OUTPUT:** You MUST output one of: "승", "무", "패".
-      -----------------------------------------------------------------------------------
+      Constraints: Strictly adhere to the ${targetGameType} format.
+      - Handicap: Output "핸디승/핸디무/핸디패".
+      - UnOver: Output "오버/언더".
+      - General: Output "승/무/패".
       `;
   }
 
   let prompt = `
-    당신은 최고의 승률을 자랑하는 AI 베팅 알고리즘입니다.
-    다음 ${cartItems.length}개 경기를 정밀 분석합니다.
+    당신은 스포츠 법정의 수석 재판관입니다.
+    다음 ${cartItems.length}개 경기에 대해 **[Red:홈팀변호인] vs [Blue:원정팀변호인] vs [Green:중립분석관]**의 토론을 주재하고 판결을 내리십시오.
 
     [분석 모드: ${analysisMode === 'all' ? 'PROTO MATCH PREDICTION (ALL MATCHES)' : 'BEST COMBINATION RECOMMENDER (MANUAL)'}]
     
     ${typeSpecificInstruction}
     
-    ${analysisMode === 'combination' 
-       ? `**MISSION (수동 조합 모드):**
-          1. **[전체 분석 필수]**: 입력된 **${cartItems.length}개 모든 경기**에 대해 분석을 수행합니다.
-          2. **[GAME TYPE LOGIC]**: 위 Global Setting을 따르되, 개별 경기 정보에 Fixed Criteria가 있으면 그것을 우선하십시오.
-          3. **[조합 추천]**: 분석된 결과 중 가장 적중 확률이 높은 것들을 골라 ${folderCount}폴더 조합을 ${recommendationCount}개(SET) 추천하십시오.
-          4. **[3 Agent Analysis & Reasoning - STRICT FORMAT]**: 
-             - 'reason' 필드에는 **반드시 3명의 에이전트 의견을 모두 포함**해야 합니다.
-             - **⚠️ Agent B (News) 누락 금지:** 만약 Google 검색 결과에 특이사항이 없더라도 생략하지 말고, "📰News: 특이사항 없음 (검색 정보 부족)"이라고 명시하십시오.
-             - **필수 형식:** "🕵️Data: [내용] \n📰News: [내용] \n💰Odds: [내용]" (줄바꿈 문자 \\n 반드시 사용)
-          5. **[Expected Value - PROBABILITY]**: 'expectedValue' 필드에는 **이 조합이 적중할 확률**을 텍스트로 적으십시오.
-             - **형식:** "적중 확률: 88% (매우 높음)" 또는 "예상 적중률: 75% (안전)"
-          6. **[Detailed Comment]**: 'totalReason'에는 이 조합을 선택한 이유를 **최소 4~5문장**으로 아주 자세하게 설명해주세요.`
-       : `**MISSION (프로토 전체 승부식 모드):** 
-          1. 제공된 ${cartItems.length}개 **모든 경기**에 대해 승/무/패 예측을 수행하십시오.
-          2. **조합(Combination)을 생성하지 마십시오.** 오직 개별 경기 분석에만 집중하십시오.
-          3. 각 경기마다 3명의 에이전트 (Data/News/Odds)의 분석 내용을 **상세하게** 작성하십시오.
-          4. JSON 출력 시 'gameType', 'criteria', 'strategyStatus' 필드를 정확히 기재하십시오.`
-    }
-
-    **[CRITICAL INSTRUCTION: Balanced Analysis]**
-    1. **Data Driven:** 투표율이나 인기도보다 **실제 경기력 데이터(Recent Form, H2H)**를 우선하십시오.
-    2. **Logic Check:** 핸디캡이나 언더오버는 반드시 **예상 스코어**와 논리적으로 일치해야 합니다. (예: 예상 스코어 3:0인데 언더 2.5를 추천하면 안 됨)
-    3. **Output Language:** 모든 텍스트는 **한국어(Korean)**로 작성하십시오.
+    **MISSION:**
+    1. **Debate Summary:** 'reason' 필드에 반드시 3명의 공방 내용을 요약해서 넣으십시오.
+       - 형식: "🔴Red(Home): [주장] \n🔵Blue(Away): [주장] \n⚖️Verdict: [판결]"
+       - 데이터에 기반하지 않은 주장은 기각하십시오.
+    2. **Balanced Verdict:** Red와 Blue 중 논리적으로 더 타당한 쪽의 손을 들어주십시오.
+    3. **Korean Output:** 모든 텍스트는 한국어로 작성하십시오.
+    4. **MANDATORY:** Output JSON must contain FULL match details (homeTeam, awayTeam, etc.) inside the 'matches' array of each combination. Do NOT use references.
 
     [분석 대상 경기 목록]
     ${enrichedMatches.map((m, idx) => {
-        // [Logic] In Proto mode (analysisMode == 'all'), strict individual type. In Manual, follow global or individual if specified.
         const effectiveType = (isProtoMode || m.item.gameType !== 'General') ? (m.item.gameType || 'General') : targetGameType;
-        const criteriaInfo = m.item.criteria ? `\n    - **[FIXED CRITERIA]: ${m.item.criteria}** (⚠️ STRICTLY COMPLY with this value)` : '';
-
-        // [New] Explicit Constraint Per Match
+        const criteriaInfo = m.item.criteria ? `\n    - **[FIXED CRITERIA]: ${m.item.criteria}**` : '';
         let outputConstraint = "PREDICT: [승, 무, 패]";
-        if (isProtoMode && effectiveType === 'General') outputConstraint = "PREDICT: Single ('승') or Double ('승/무') - MAX 3 Double Chances allowed total."; // Budget constraint note
-        else if (effectiveType === 'Handicap') outputConstraint = "PREDICT ONLY: [핸디승, 핸디무, 핸디패] (DO NOT PREDICT UNDER/OVER)";
-        else if (effectiveType === 'UnOver') outputConstraint = "PREDICT ONLY: [오버, 언더] (DO NOT PREDICT WIN/LOSS)";
-        else if (effectiveType === 'Sum') outputConstraint = "PREDICT ONLY: [홀, 짝]";
-        else if (effectiveType === 'Mixed') outputConstraint = "AUTO SELECT BEST TYPE: [General, Handicap, UnOver]";
+        if (effectiveType === 'Handicap') outputConstraint = "PREDICT: [핸디승, 핸디무, 핸디패]";
+        else if (effectiveType === 'UnOver') outputConstraint = "PREDICT: [오버, 언더]";
 
         return `
     GAME ${idx + 1}: ${m.item.sport} - ${m.item.homeTeam} vs ${m.item.awayTeam}
@@ -434,47 +376,54 @@ export const recommendCombination = async (
     - Public Vote Rates: ${m.item.voteRates || "Unknown"}
     - Official Odds: ${JSON.stringify(m.data?.matchDetails.odds) || "Unknown"}
     - H2H/Form: ${m.data?.homeTeam.recentMatches ? "Available" : "Missing"}
-    - Details: ${m.data ? JSON.stringify(m.data.meta) : ""}
     `;}).join('\n')}
-
-    [Output JSON Format Only]
-    {
-      "matches": [
-        {
-          "homeTeam": "Team A",
-          "awayTeam": "Team B",
-          "prediction": "${isProtoMode ? '승/무 (TRAP)' : (targetGameType === 'Handicap' ? '핸디승' : '승')}", 
-          "confidence": 85,
-          "reason": "🕵️Data: ... \n📰News: ... \n💰Odds: ...",
-          "riskLevel": "LOW",
-          "sport": "football",
-          "gameType": "${isProtoMode || isMixedMode ? 'MUST match the specific [TARGET TYPE] chosen (General, Handicap, UnOver)' : targetGameType}", 
-          "criteria": "${isProtoMode || isMixedMode ? 'MUST match the [FIXED CRITERIA] provided or chosen' : '-1.0'}",
-          "strategyStatus": "AXIS | TRAP | ERASER | NONE"
-        }
-      ],
-      "recommendedCombinations": [
-         ${analysisMode === 'combination' ? `{
-            "rank": 1,
-            "matches": [ 
-               {
-                  "homeTeam": "Team A",
-                  "awayTeam": "Team B",
-                  "prediction": "...",
-                  "confidence": 92,
-                  "reason": "...",
-                  "sport": "football",
-                  "gameType": "...",
-                  "criteria": "...",
-                  "strategyStatus": "AXIS"
-               }
-            ],
-            "totalReason": "...",
-            "expectedValue": "적중 확률: 85% (안전)"
-         }` : ''}
-      ]
-    }
   `;
+
+  // [SCHEMA DEFINITION] Ensure strict JSON output
+  const matchSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      homeTeam: { type: Type.STRING },
+      awayTeam: { type: Type.STRING },
+      prediction: { type: Type.STRING },
+      confidence: { type: Type.NUMBER },
+      reason: { type: Type.STRING },
+      riskLevel: { type: Type.STRING, enum: ["LOW", "MEDIUM", "HIGH"] },
+      sport: { type: Type.STRING },
+      gameType: { type: Type.STRING },
+      criteria: { type: Type.STRING },
+      strategyStatus: { type: Type.STRING, enum: ["AXIS", "TRAP", "ERASER", "NONE"] },
+    },
+    required: ["homeTeam", "awayTeam", "prediction", "confidence", "reason"],
+  };
+
+  const responseSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      matches: {
+        type: Type.ARRAY,
+        items: matchSchema,
+        description: "List of all analyzed matches."
+      },
+      recommendedCombinations: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            rank: { type: Type.NUMBER },
+            totalReason: { type: Type.STRING },
+            expectedValue: { type: Type.STRING },
+            matches: {
+              type: Type.ARRAY,
+              items: matchSchema,
+              description: "Must contain full match objects, not just references."
+            },
+          },
+          required: ["rank", "matches", "totalReason"],
+        },
+      },
+    },
+  };
 
   const tools = useAutoSearch ? [{ googleSearch: {} }] : undefined;
 
@@ -486,6 +435,7 @@ export const recommendCombination = async (
       contents: prompt,
       config: {
         responseMimeType: "application/json",
+        responseSchema: responseSchema,
         temperature: 0.1, 
         tools: tools 
       },
@@ -505,17 +455,13 @@ export const recommendCombination = async (
 
     // [MERGE] API에서 가져온 실제 배당률(Odds) 데이터를 결과에 병합
     const mergeMatchData = (match: any) => {
-        // [FIX]: Safety check for AI response - Prevent crash on missing fields
         const aiHome = match?.homeTeam ? String(match.homeTeam) : "";
         const aiAway = match?.awayTeam ? String(match.awayTeam) : "";
 
         if (!aiHome || !aiAway) {
-            console.warn("AI returned invalid match data (missing teams):", match);
             return match; 
         }
 
-        // [FIX]: Relaxed matching logic to handle AI variations in naming
-        // 1. Try exact match with type/criteria
         let original = cartItems.find(item => {
             const itemHome = item.homeTeam || "";
             const itemAway = item.awayTeam || "";
@@ -523,7 +469,6 @@ export const recommendCombination = async (
                    itemAway.replace(/\s/g, '').toLowerCase() === aiAway.replace(/\s/g, '').toLowerCase();
         });
 
-        // 2. Fallback: Relaxed name match (contains)
         if (!original) {
              original = cartItems.find(item => {
                 const itemHome = item.homeTeam || "";
@@ -537,7 +482,6 @@ export const recommendCombination = async (
         );
 
         let oddsData = undefined;
-        // API Sports Odds Structure Parsing
         if (enriched?.data?.matchDetails?.odds) {
              const rawOdds = enriched.data.matchDetails.odds;
              if (Array.isArray(rawOdds)) {
@@ -550,15 +494,11 @@ export const recommendCombination = async (
              }
         }
 
-        // [LOGIC] Determine effective GameType
         let effectiveGameType: GameType = targetGameType;
 
         if (analysisMode === 'all') {
-             // In Proto mode, use the item's specific type if not General
              effectiveGameType = (original?.gameType && original.gameType !== 'General') ? original.gameType : 'General';
         } else if (targetGameType === 'Mixed') {
-             // In Mixed mode, prioritize AI's decision (match.gameType). 
-             // Fallback to General if AI returned something weird or empty.
              if (match.gameType && match.gameType !== 'Mixed') {
                  effectiveGameType = match.gameType as GameType;
              } else {
@@ -568,18 +508,20 @@ export const recommendCombination = async (
 
         return { 
             ...match, 
-            homeTeamKo: original?.homeTeamKo, 
-            awayTeamKo: original?.awayTeamKo,
+            homeTeamKo: original?.homeTeamKo || match.homeTeam, 
+            awayTeamKo: original?.awayTeamKo || match.awayTeam,
             odds: oddsData,
             sport: match.sport || original?.sport || 'general',
-            // [STRICT OVERRIDE] 
             gameType: effectiveGameType, 
-            // [CRITERIA LOGIC] Prefer AI's criteria (if it picked a specific Handicap/UnOver), fallback to input
             criteria: match.criteria || original?.criteria 
         };
     };
 
-    result.matches = result.matches.map(mergeMatchData);
+    if (result.matches) {
+        result.matches = result.matches.map(mergeMatchData);
+    } else {
+        result.matches = [];
+    }
     
     if (result.recommendedCombinations && Array.isArray(result.recommendedCombinations)) {
         result.recommendedCombinations = result.recommendedCombinations.map(combo => ({

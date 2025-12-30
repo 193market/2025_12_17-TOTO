@@ -1,7 +1,6 @@
-
 import { SportType } from "../types";
 
-// [SECURITY] API Key 고정 (사용자 요청)
+// [SECURITY] API Key 고정 (사용자 요청 - Paid Plan Key)
 const API_KEY = 'cfe7a64a3a829e43ece1bc2746b48a8d';
 
 // 종목별 API 설정
@@ -248,7 +247,7 @@ const PREDEFINED_TEAM_IDS: Record<string, number> = {
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function fetchFromApi(sport: SportType, endpoint: string, params: Record<string, string>, retries = 3): Promise<any> {
+async function fetchFromApi(sport: SportType, endpoint: string, params: Record<string, string>, retries = 2): Promise<any> {
   const config = SPORT_CONFIG[sport];
   const url = new URL(`https://${config.host}${endpoint}`);
   
@@ -262,28 +261,27 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
   try {
     const response = await fetch(url.toString(), { headers });
     
-    // [Free Plan Limit Check]
     if (!response.ok) {
       const errorText = await response.text();
       
-      // 1. Rate Limit (429) -> Wait and Retry Aggressively
+      // [RATE LIMIT HANDLING]
       if (response.status === 429) {
          if (retries > 0) {
-            // 무료 플랜은 1분 10회 제한이므로 429 발생 시 6초 이상 대기해야 안전함
-            const delay = 6000 + Math.random() * 2000; 
-            console.warn(`API Rate Limit (429) - Retrying in ${Math.round(delay)}ms... (${retries} left)`);
-            await wait(delay);
-            return fetchFromApi(sport, endpoint, params, retries - 1);
+            // [PAID PLAN] 축구는 유료이므로 빠르게 재시도
+            if (sport === 'football') {
+                const delay = 1000; 
+                console.warn(`[Football] API Rate Limit (429) - Retrying shortly... (${retries} left)`);
+                await wait(delay);
+                return fetchFromApi(sport, endpoint, params, retries - 1);
+            } else {
+                // [FREE PLAN] 다른 종목은 무료 플랜 정책을 따름 (대기 시간 김)
+                const delay = 6000; 
+                console.warn(`[${sport}] API Rate Limit (429) - Free Plan safety wait... (${retries} left)`);
+                await wait(delay);
+                return fetchFromApi(sport, endpoint, params, retries - 1);
+            }
          }
          throw new Error(`API 요청 한도 초과 (429): 잠시 후 다시 시도해주세요.`);
-      }
-
-      // 2. Plan Restrictions (403 or specific messages)
-      // 무료 플랜에서 허용되지 않는 파라미터(last, next 등) 사용 시 발생하는 에러는
-      // 전체 분석을 멈추지 않도록 null을 반환하여 해당 데이터만 건너뜀
-      if (response.status === 403 || errorText.includes("plan") || errorText.includes("access")) {
-          console.warn(`[Plan Restriction] Skipped restricted data for ${endpoint}: ${errorText}`);
-          return null; 
       }
 
       throw new Error(`API 오류 (${response.status}): ${response.statusText}`);
@@ -291,20 +289,13 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
 
     const json = await response.json();
     
-    // API 내부 에러 메시지 처리 (JSON 응답이지만 errors 필드가 있는 경우)
     if (json.errors) {
         const errorKeys = Object.keys(json.errors);
         if (errorKeys.length > 0) {
-            // Plan 관련 에러면 null 반환
             const errorMsg = JSON.stringify(json.errors);
-            if (errorMsg.includes("plan") || errorMsg.includes("access") || errorMsg.includes("rateLimit")) {
-                if (errorMsg.includes("rateLimit") && retries > 0) {
-                    const delay = 6000;
-                    await wait(delay);
-                    return fetchFromApi(sport, endpoint, params, retries - 1);
-                }
-                console.warn(`API Internal Restriction: ${errorMsg}`);
-                return null;
+            console.warn(`API Warning: ${errorMsg}`);
+            if (!json.response || json.response.length === 0) {
+                 return null;
             }
         }
     }
@@ -312,15 +303,19 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
     return json.response;
   } catch (error: any) {
     if (retries > 0 && (error.message?.includes('Failed to fetch') || error.name === 'TypeError')) {
-        const delay = 2000 + Math.random() * 1000;
-        console.warn(`Network Error (${error.message}) - Retrying...`);
-        await wait(delay); 
-        return fetchFromApi(sport, endpoint, params, retries - 1);
+        // [NETWORK ERROR HANDLING]
+        if (sport === 'football') {
+            const delay = 1000; // Increased to 1000ms for better stability
+            console.warn(`Network Error (${error.message}) - Retrying [Football]...`);
+            await wait(delay); 
+            return fetchFromApi(sport, endpoint, params, retries - 1);
+        } else {
+            // 다른 종목은 API Key 권한 문제일 수 있으므로 무리하게 재시도하지 않음
+            console.warn(`Network Error on non-paid sport [${sport}]. Skipping retry to prevent spam.`);
+            return null;
+        }
     }
-    // Plan 제한 에러는 무시하고 null 반환 (분석 계속 진행)
-    if (error.message?.includes("Plan Restriction")) return null;
-    
-    throw error;
+    return null;
   }
 }
 
@@ -350,7 +345,6 @@ export async function getTeamId(sport: SportType, teamName: string): Promise<num
     }
     return null;
   } catch (e: any) {
-    // ID 조회 실패는 치명적이지 않게 처리 (검색으로 대체 가능하도록 null 반환)
     console.warn(`Team ID fetch failed for ${teamName}`);
     return null;
   }
@@ -361,17 +355,16 @@ export async function getTeamForm(sport: SportType, teamId: number) {
   const config = SPORT_CONFIG[sport];
   try {
     const params: any = { 
-      team: teamId.toString(), 
-      status: 'FT' // Full Time only
+      team: teamId.toString()
     };
     
-    // [Free Plan Fix] 'last' 파라미터는 무료 플랜에서 축구 외 종목에서 자주 막힘
+    // [PAID PLAN] 축구만 고급 데이터(last 5) 조회 허용
     if (sport === 'football') {
         params.last = '5';
+        params.status = 'FT';
     } else {
-        // 농구/야구 등은 무료 플랜에서 last 파라미터 사용 시 403 에러 발생 가능성 높음.
-        // 에러 발생 시 fetchFromApi 내부에서 null을 반환하도록 처리됨.
-        params.last = '5'; 
+        // [FREE PLAN] 다른 종목은 기본값 사용 (API 정책에 따라 last 파라미터가 유료일 수 있음)
+        // 필요시 last 파라미터 제외
     }
 
     return await fetchFromApi(sport, `/${config.matchEndpoint}`, params);
@@ -385,11 +378,16 @@ export async function getHeadToHead(sport: SportType, teamIdA: number, teamIdB: 
   
   const config = SPORT_CONFIG[sport];
   try {
-    // [Free Plan Fix] HeadToHead 엔드포인트가 없거나 플랜 제한인 경우 처리
-    return await fetchFromApi(sport, `/${config.matchEndpoint}/headtohead`, { 
-      h2h: `${teamIdA}-${teamIdB}`,
-      last: '5' 
-    });
+    const params: any = {
+      h2h: `${teamIdA}-${teamIdB}`
+    };
+
+    // [PAID PLAN] 축구만 고급 데이터 허용
+    if (sport === 'football') {
+        params.last = '5';
+    }
+
+    return await fetchFromApi(sport, `/${config.matchEndpoint}/headtohead`, params);
   } catch (e) {
     return null;
   }
@@ -460,13 +458,10 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
   ]);
 
   if (!homeId || !awayId) {
-    // ID를 못 찾으면 API 데이터를 포기하고 에러를 던져 Gemini가 검색을 사용하도록 유도하거나
-    // 상위 로직에서 처리하도록 함.
     throw new Error(`${homeName} 또는 ${awayName} 정보를 찾을 수 없습니다. (매핑 실패 또는 API 오류)`);
   }
 
   // 2. Basic Data (Form & H2H)
-  // 무료 플랜 제한으로 인해 일부 데이터가 null일 수 있음 -> 에러 내지 않고 진행
   const [homeForm, awayForm, h2h] = await Promise.all([
     getTeamForm(sport, homeId),
     getTeamForm(sport, awayId),
@@ -501,15 +496,17 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
 
   try {
     let nextMatchEndpoint = `/${config.matchEndpoint}`;
+    let params: any = {
+        h2h: `${homeId}-${awayId}`,
+        next: '1'
+    };
+
     // Football has specific H2H endpoint for scheduling usually, others might use games
     if (sport === 'football') {
         nextMatchEndpoint = `/${config.matchEndpoint}/headtohead`;
     }
 
-    const nextMatch = await fetchFromApi(sport, nextMatchEndpoint, {
-        h2h: `${homeId}-${awayId}`,
-        next: '1'
-    });
+    const nextMatch = await fetchFromApi(sport, nextMatchEndpoint, params);
     
     if (nextMatch && nextMatch.length > 0) {
         const match = nextMatch[0];
@@ -522,16 +519,18 @@ export async function getMatchContextData(sport: SportType, homeName: string, aw
         };
 
         if (fixtureId) {
-            // Promise.allSettled를 사용하여 하나가 실패해도 나머지는 건지도록 함
-            const results = await Promise.allSettled([
-              getFixtureLineups(sport, fixtureId),
-              getOdds(sport, fixtureId),
-              getInjuries(sport, fixtureId)
-            ]);
-            
-            lineups = results[0].status === 'fulfilled' ? results[0].value : null;
-            odds = results[1].status === 'fulfilled' ? results[1].value : null;
-            injuries = results[2].status === 'fulfilled' ? results[2].value : null;
+            // Lineups, Odds, Injuries are often Football specific or limited on free tier
+            if (sport === 'football') {
+                const results = await Promise.allSettled([
+                    getFixtureLineups(sport, fixtureId),
+                    getOdds(sport, fixtureId),
+                    getInjuries(sport, fixtureId)
+                ]);
+                
+                lineups = results[0].status === 'fulfilled' ? results[0].value : null;
+                odds = results[1].status === 'fulfilled' ? results[1].value : null;
+                injuries = results[2].status === 'fulfilled' ? results[2].value : null;
+            }
         }
 
         if (match.league?.id && match.league?.season) {
