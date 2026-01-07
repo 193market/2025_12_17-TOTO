@@ -1,11 +1,11 @@
+
 import React, { useState, useRef } from 'react';
 import { MatchData, SportType, TrainingSample, CartItem, GameType } from '../types';
 
 interface MatchInputProps {
   onAnalyze: (data: MatchData) => void;
   onLearn: (samples: TrainingSample[]) => void;
-  // [UPDATED] Pass targetGameType to recommend function
-  onRecommend?: (items: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean, analysisMode: 'combination' | 'all', targetGameType?: GameType) => void;
+  onRecommend?: (items: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean, analysisMode: 'combination' | 'all', targetGameType?: GameType, globalStrategy?: string) => void;
   learnedCount: number;
   isLoading: boolean;
   previousAnalysis?: string | null;
@@ -216,7 +216,7 @@ const TEAM_MAPPINGS: Record<string, string> = {
   // A-League
   '애들유나': 'Adelaide United',
   '웨스원더': 'Western Sydney Wanderers',
-  '멜버른빅': 'Melbourne Victory',
+  '멜버른빅': 'Melbourne Victory', '멜버빅토': 'Melbourne Victory',
   '멜버른시': 'Melbourne City', '멜버시티': 'Melbourne City',
   '센트럴코': 'Central Coast Mariners', '센트매리': 'Central Coast Mariners',
   '맥아서FC': 'Macarthur FC',
@@ -391,8 +391,6 @@ const DEFAULT_CONTEXT = `(초보자 모드)
 3. 정말 확실하지 않으면 "이번엔 쉬어가세요(NO BET)"라고 솔직하게 말해줘.`;
 
 const getKoreanName = (englishName: string): string | undefined => {
-    // English -> Korean Reverse Lookup
-    // Find keys where Value === englishName AND Key contains Korean
     const foundKey = Object.keys(TEAM_MAPPINGS).find(key => 
         TEAM_MAPPINGS[key].toLowerCase() === englishName.toLowerCase() && /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(key)
     );
@@ -400,7 +398,7 @@ const getKoreanName = (englishName: string): string | undefined => {
 };
 
 const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend, learnedCount, isLoading, previousAnalysis }) => {
-  const [mode, setMode] = useState<'proto' | 'manual' | 'single'>('manual');
+  const [mode, setMode] = useState<'proto' | 'manual' | 'single' | 'review'>('manual');
   const [sport, setSport] = useState<SportType>('football');
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
@@ -408,7 +406,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   const [context, setContext] = useState(DEFAULT_CONTEXT);
   const [autoSearch, setAutoSearch] = useState(true); 
   
-  // [NEW] Global Game Type State for Manual Mode (Batch Config)
+  // [NEW] Global Strategy Context for Batch Modes
+  const [globalStrategy, setGlobalStrategy] = useState('');
+
   const [targetGameType, setTargetGameType] = useState<GameType>('General');
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -418,7 +418,10 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
 
   const [conversionMsg, setConversionMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
+  const [reviewImages, setReviewImages] = useState<string[]>([]); 
   const contextFileInputRef = useRef<HTMLInputElement>(null);
+  const strategyFileInputRef = useRef<HTMLInputElement>(null); // [NEW] For batch strategy upload
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const normalizeAndConvert = (name: string): string => {
       const normalized = name.trim();
@@ -435,9 +438,6 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     const finalHome = normalizeAndConvert(homeTeam);
     const finalAway = normalizeAndConvert(awayTeam);
     
-    // [FIX] Improved Korean name lookup logic
-    // If input is already Korean, use it.
-    // If input is English (normalized), try to find Key in Mappings.
     const homeKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(homeTeam) ? homeTeam : (getKoreanName(finalHome) || homeTeam);
     const awayKo = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(awayTeam) ? awayTeam : (getKoreanName(finalAway) || awayTeam);
 
@@ -448,7 +448,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         awayTeam: finalAway,
         homeTeamKo: homeKo, 
         awayTeamKo: awayKo,
-        gameType: 'General', // Default placeholder, will be overridden by batch setting
+        gameType: 'General', 
         criteria: null
     };
 
@@ -491,40 +491,36 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
           let gameType: GameType = 'General';
           let criteria: string | undefined = undefined;
 
-          // Only parse game type from text if in Proto mode, 
-          // but for Manual/Bulk, we generally default to General and let user select global type later.
-          // However, preserving original parsing logic for Proto Paste compatibility.
-          if (text.includes('핸디캡')) gameType = 'Handicap';
-          else if (text.includes('언더오버')) gameType = 'UnOver';
-          else if (text.includes('SUM')) gameType = 'Sum';
+          const cleanText = text.replace(/\n/g, ' ');
+
+          if (cleanText.includes('핸디캡')) gameType = 'Handicap';
+          else if (cleanText.includes('언더오버')) gameType = 'UnOver';
+          else if (cleanText.includes('SUM')) gameType = 'Sum';
           
           if (gameType === 'Handicap') {
-              const hMatch = text.match(/H\s*([-+]?\d+(\.\d+)?)/);
+              const hMatch = cleanText.match(/H\s*([-+]?\d+(\.\d+)?)/);
               if (hMatch) criteria = hMatch[1];
               else {
-                  const nMatch = text.match(/(?:H\s*)?([-+]\d+(\.\d+)?)/);
+                  const nMatch = cleanText.match(/(?:H\s*)?([-+]\d+(\.\d+)?)/);
                   if (nMatch) criteria = nMatch[1];
               }
           } else if (gameType === 'UnOver') {
-              const uMatch = text.match(/U\/O\s*(\d+(\.\d+)?)/);
+              const uMatch = cleanText.match(/U\/O\s*(\d+(\.\d+)?)/);
               if (uMatch) criteria = uMatch[1];
               else {
-                   const nMatch = text.match(/\d+(\.\d+)?/);
+                   const nMatch = cleanText.match(/\d+(\.\d+)?/);
                    if (nMatch && parseFloat(nMatch[0]) < 10) criteria = nMatch[0];
               }
           }
 
           const foundTeams: { key: string, en: string, idx: number }[] = [];
           
-          // [FIX] Use a temporary string and mask found terms to prevent substring matching
-          // Example: '적도기니 : 수단' -> '적도기니' found -> mask it -> '기니' (part of 적도기니) won't be found again.
-          let tempText = text;
+          let tempText = cleanText;
 
           for (const key of sortedMappingKeys) {
              const idx = tempText.indexOf(key);
              if (idx !== -1) {
                  foundTeams.push({ key, en: TEAM_MAPPINGS[key], idx });
-                 // Replace found key with spaces to preserve indices but prevent re-matching
                  const mask = " ".repeat(key.length);
                  tempText = tempText.substring(0, idx) + mask + tempText.substring(idx + key.length);
              }
@@ -582,12 +578,16 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
               processLineOrBlock(block, voteRateStr);
           });
       } else {
-          const blocks = pasteInput.split(/(?=\d{3,}\s)/); 
+          const blocks = pasteInput.split(/(?=^\d+\s*$|^\d{3,}\s)/m);
+          
           if (blocks.length > 1) {
              blocks.forEach(b => processLineOrBlock(b));
           } else {
              const lines = pasteInput.split('\n');
-             lines.forEach(line => processLineOrBlock(line));
+             lines.forEach(line => {
+                 processLineOrBlock(line);
+             });
+             processLineOrBlock(pasteInput.replace(/\n/g, ' '));
           }
       }
 
@@ -610,7 +610,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     const element = document.createElement("a");
     const file = new Blob([context], {type: 'text/plain'});
     element.href = URL.createObjectURL(file);
-    element.download = `context_${homeTeam || 'match'}_vs_${awayTeam || 'analysis'}.txt`;
+    // [NEW] Dynamic Filename for Single Mode
+    const filename = `[메모]_${homeTeam || 'Home'}_vs_${awayTeam || 'Away'}.txt`;
+    element.download = filename;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -628,6 +630,49 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     setTimeout(() => setConversionMsg(null), 3000);
   };
   
+  // [UPDATED] Load Multiple Strategy Files for Batch Mode
+  const handleLoadStrategyFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const readTextFile = (file: File): Promise<string> => {
+        return new Promise((resolve) => {
+            if (file.type !== 'text/plain') {
+                resolve(""); 
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (ev) => resolve((ev.target?.result as string) || "");
+            reader.onerror = () => resolve("");
+            reader.readAsText(file);
+        });
+    };
+
+    const fileList = Array.from(files) as File[];
+    const results = await Promise.all(fileList.map(f => readTextFile(f)));
+    
+    // Combine results with headers
+    const mergedText = results
+        .map((text, index) => {
+            if (!text.trim()) return null;
+            return `\n=== [LOADED: ${fileList[index].name}] ===\n${text}`;
+        })
+        .filter(Boolean)
+        .join("\n\n");
+
+    if (mergedText) {
+        setGlobalStrategy(mergedText);
+        setConversionMsg(`${results.filter(t => t.trim()).length}개의 전략 파일이 통합 로드되었습니다.`);
+    } else {
+        alert("유효한 TXT 파일 내용이 없습니다.");
+    }
+    
+    setTimeout(() => setConversionMsg(null), 3000);
+    
+    // Reset input to allow re-selecting same files if needed
+    if (strategyFileInputRef.current) strategyFileInputRef.current.value = '';
+  };
+
   const handleLoadContextFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -646,9 +691,57 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     reader.readAsText(file);
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+
+      const newImages: string[] = [];
+      let processedCount = 0;
+
+      // Handle Multiple Files
+      Array.from(files).forEach((file: any) => {
+          if (!file.type.startsWith('image/')) return;
+          
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              const base64 = event.target?.result as string;
+              const base64Data = base64.split(',')[1];
+              newImages.push(base64Data);
+              processedCount++;
+
+              if (processedCount === files.length) {
+                  setReviewImages(prev => [...prev, ...newImages]);
+                  setConversionMsg(`${processedCount}장의 이미지가 로드되었습니다.`);
+                  setTimeout(() => setConversionMsg(null), 3000);
+              }
+          };
+          reader.readAsDataURL(file);
+      });
+  };
+
+  const removeReviewImage = (index: number) => {
+      setReviewImages(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
+
+    if (mode === 'review') {
+        if (reviewImages.length === 0) {
+            alert("복기할 경기 결과 이미지(들)를 업로드해주세요.");
+            return;
+        }
+        onAnalyze({
+            sport: 'football',
+            homeTeam: 'Unknown',
+            awayTeam: 'Unknown',
+            images: reviewImages, 
+            context: "이미지 기반 복기 요청",
+            useAutoSearch: true
+        });
+        return;
+    }
 
     if (mode === 'proto' || mode === 'manual') {
         if (cart.length < 2) {
@@ -657,9 +750,9 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         }
         if (onRecommend) {
             if (mode === 'proto') {
-                onRecommend(cart, cart.length, 1, autoSearch, 'all');
+                onRecommend(cart, cart.length, 1, autoSearch, 'all', undefined, globalStrategy);
             } else {
-                onRecommend(cart, folderCount, recommendationCount, autoSearch, 'combination', targetGameType);
+                onRecommend(cart, folderCount, recommendationCount, autoSearch, 'combination', targetGameType, globalStrategy);
             }
         }
     } 
@@ -689,12 +782,11 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
     }
   };
 
+  // ... (handleTeamBlur and getPlaceholder remain the same) ...
   const handleTeamBlur = (type: 'home' | 'away') => {
     const currentName = type === 'home' ? homeTeam : awayTeam;
     if (!currentName) return;
-    
     const converted = normalizeAndConvert(currentName);
-    
     if (converted && converted.toLowerCase() !== currentName.toLowerCase()) {
       if (type === 'home') setHomeTeam(converted);
       else setAwayTeam(converted);
@@ -719,11 +811,12 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 relative">
       
-      <div className="flex border-b border-slate-700 mb-6">
+      {/* Mode Switcher */}
+      <div className="flex border-b border-slate-700 mb-6 overflow-x-auto">
         <button
           type="button"
           onClick={() => setMode('manual')}
-          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
+          className={`flex-1 pb-3 text-sm font-bold transition-colors whitespace-nowrap px-2 ${
             mode === 'manual' 
               ? 'text-emerald-400 border-b-2 border-emerald-400' 
               : 'text-slate-400 hover:text-slate-200'
@@ -734,24 +827,35 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         <button
           type="button"
           onClick={() => setMode('proto')}
-          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
+          className={`flex-1 pb-3 text-sm font-bold transition-colors whitespace-nowrap px-2 ${
             mode === 'proto' 
               ? 'text-emerald-400 border-b-2 border-emerald-400' 
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          📝 프로토 승부식
+          📝 승부식 전체
         </button>
         <button
           type="button"
           onClick={() => setMode('single')}
-          className={`flex-1 pb-3 text-sm font-bold transition-colors ${
+          className={`flex-1 pb-3 text-sm font-bold transition-colors whitespace-nowrap px-2 ${
             mode === 'single' 
               ? 'text-emerald-400 border-b-2 border-emerald-400' 
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           ⚽ 단일 분석
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('review')}
+          className={`flex-1 pb-3 text-sm font-bold transition-colors whitespace-nowrap px-2 ${
+            mode === 'review' 
+              ? 'text-indigo-400 border-b-2 border-indigo-400' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          📷 이미지 복기
         </button>
       </div>
 
@@ -787,6 +891,65 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         </div>
         )}
 
+        {/* --- REVIEW MODE --- */}
+        {mode === 'review' && (
+            <div className="bg-slate-900 rounded-lg p-6 border border-indigo-500/50 animate-fade-in">
+                <div className="text-center mb-6">
+                    <h3 className="text-lg font-bold text-white mb-2">📸 결과/영수증 이미지 업로드 (다중 선택 가능)</h3>
+                    <p className="text-sm text-slate-400 mb-4">
+                        적중 결과 화면이나 종이 영수증 사진을 올려주세요.<br/>
+                        AI가 자동으로 경기를 인식하고 <strong className="text-indigo-400">구글 검색을 통해 틀린 원인을 분석</strong>해줍니다.<br/>
+                        <span className="text-xs text-emerald-400">* 결과 TXT를 저장해두면, 다음 분석 시 '전략 자료'로 활용하여 적중률을 높일 수 있습니다.</span>
+                    </p>
+                    
+                    <input 
+                        type="file" 
+                        accept="image/*" 
+                        multiple 
+                        ref={imageInputRef} 
+                        onChange={handleImageUpload} 
+                        className="hidden" 
+                    />
+                    
+                    <button 
+                        type="button"
+                        onClick={() => imageInputRef.current?.click()}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg flex items-center justify-center w-full transition-transform transform active:scale-95"
+                    >
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        이미지 추가 (여러 장 가능)
+                    </button>
+                </div>
+
+                {reviewImages.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                        {reviewImages.map((img, idx) => (
+                            <div key={idx} className="relative aspect-square bg-slate-800 rounded-lg overflow-hidden border border-slate-600">
+                                <img 
+                                    src={`data:image/jpeg;base64,${img}`} 
+                                    alt={`Preview ${idx}`} 
+                                    className="w-full h-full object-cover"
+                                />
+                                <button 
+                                    type="button" 
+                                    onClick={() => removeReviewImage(idx)}
+                                    className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full hover:bg-red-500 shadow-sm"
+                                >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                
+                <div className="bg-slate-800/50 p-3 rounded border border-slate-700">
+                    <p className="text-xs text-slate-500">
+                        * 팁: 이미지에 팀 이름과 내역이 선명하게 나와야 정확합니다.
+                    </p>
+                </div>
+            </div>
+        )}
+
         {/* --- PROTO MODE (Bulk Paste) --- */}
         {mode === 'proto' && (
             <div className="bg-slate-900 rounded-lg p-4 border border-indigo-500/50 mb-4">
@@ -796,7 +959,10 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                 <textarea
                   value={pasteInput}
                   onChange={(e) => setPasteInput(e.target.value)}
-                  placeholder={`[예시]\n307 12.28 (일) 17:00 마감 축구 A리그 일반 멜버시티 : 퍼스글로\n308 ... 핸디캡 ... H -1.0 ...\n(텍스트 전체를 붙여넣으면 유형별로 자동 인식합니다)`}
+                  placeholder={`[예시]
+307 12.28 (일) 17:00 마감 축구 A리그 일반 멜버빅토 : 퍼스글로
+308 ... 핸디캡 ... H -1.0 ...
+(텍스트 전체를 붙여넣으면 유형별로 자동 인식합니다)`}
                   className="w-full bg-slate-800 text-slate-300 text-xs p-3 rounded h-40 focus:outline-none focus:border-indigo-500 mb-3 leading-relaxed"
                 />
                 <button
@@ -820,7 +986,10 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                     <textarea
                         value={pasteInput}
                         onChange={(e) => setPasteInput(e.target.value)}
-                         placeholder={`[예시]\n307 12.28 (일) 17:00 마감 축구 A리그 일반 멜버시티 : 퍼스글로\n308 ... 핸디캡 ... H -1.0 ...\n(텍스트 전체를 붙여넣으면 유형별로 자동 인식합니다)`}
+                         placeholder={`[예시]
+307 12.28 (일) 17:00 마감 축구 A리그 일반 멜버빅토 : 퍼스글로
+308 ... 핸디캡 ... H -1.0 ...
+(텍스트 전체를 붙여넣으면 유형별로 자동 인식합니다)`}
                         className="w-full bg-slate-800 text-slate-300 text-xs p-3 rounded h-24 focus:outline-none focus:border-indigo-500 mb-3 leading-relaxed"
                     />
                     <button
@@ -870,11 +1039,40 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         {/* --- SHARED LIST (Proto & Manual) --- */}
         {isBatchMode && (
              <div className="mt-4">
+                 {/* [NEW] Strategy Upload Section */}
+                 <div className="bg-emerald-900/30 p-3 rounded-lg border border-emerald-700/50 mb-4">
+                     <div className="flex justify-between items-center mb-2">
+                         <label className="text-xs text-emerald-400 font-bold flex items-center">
+                             📜 전략/복기 자료 적용 (적중률 향상)
+                         </label>
+                         <input 
+                            type="file" 
+                            accept=".txt" 
+                            className="hidden" 
+                            multiple // [UPDATED] 다중 파일 선택 허용
+                            ref={strategyFileInputRef} 
+                            onChange={handleLoadStrategyFile} 
+                         />
+                         <button 
+                            type="button"
+                            onClick={() => strategyFileInputRef.current?.click()}
+                            className="text-[10px] bg-emerald-700 hover:bg-emerald-600 text-white px-2 py-1 rounded shadow transition-colors"
+                         >
+                             파일 불러오기 (여러개 선택 가능)
+                         </button>
+                     </div>
+                     <textarea
+                        value={globalStrategy}
+                        onChange={(e) => setGlobalStrategy(e.target.value)}
+                        placeholder="이곳에 복기 내용이나 분석 원칙이 로드됩니다. 직접 입력해도 됩니다."
+                        className="w-full bg-slate-900/50 border border-emerald-700/30 text-slate-300 text-xs p-2 rounded h-16 focus:outline-none focus:border-emerald-500 resize-none"
+                     />
+                 </div>
+
                  {/* Options visible ONLY in MANUAL mode */}
                  {mode === 'manual' && (
                  <div className="flex flex-col space-y-4 bg-slate-900/50 p-3 rounded-lg border border-slate-700 mb-4">
-                    
-                    {/* [NEW LOCATION] Game Type Selection for Batch */}
+                    {/* ... (Keep existing game type logic) ... */}
                     <div className="flex flex-col">
                          <label className="text-xs text-purple-400 font-bold mb-1">🎮 게임 유형 선택 (전체 적용)</label>
                          <select
@@ -894,6 +1092,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                     </div>
 
                     <div className="flex justify-between space-x-2 border-t border-slate-700/50 pt-2">
+                        {/* ... (Keep existing folder/rec count inputs) ... */}
                         <div className="flex flex-col flex-1">
                             <label className="text-[10px] text-slate-400 font-bold mb-1 text-right">🎯 폴더(조합) 크기</label>
                             <select 
@@ -972,6 +1171,7 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
         {/* --- SINGLE MODE --- */}
         {mode === 'single' && (
           <div className="mt-4">
+             {/* ... (Keep existing single mode inputs) ... */}
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-slate-400 text-sm font-semibold mb-2">홈 팀</label>
@@ -1038,6 +1238,8 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
           </div>
         )}
 
+        {/* --- GLOBAL SEARCH CHECKBOX --- */}
+        {(mode === 'manual' || mode === 'single' || mode === 'proto') && (
         <div className="flex justify-end pt-2">
             <label className="flex items-center space-x-2 cursor-pointer bg-slate-900/80 px-3 py-2 rounded-lg border border-slate-700 hover:border-emerald-500 transition-colors">
                 <input 
@@ -1049,14 +1251,17 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                 <span className="text-xs text-emerald-400 font-bold">🔍 구글 자동 검색 (뉴스/결장자/프리뷰)</span>
             </label>
         </div>
+        )}
 
         <button
           type="submit"
-          disabled={isLoading || (isBatchMode && cart.length < 2)}
+          disabled={isLoading || (isBatchMode && cart.length < 2) || (mode === 'review' && reviewImages.length === 0)}
           className={`w-full font-bold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-[1.01] mt-2 ${
-            isLoading || (isBatchMode && cart.length < 2)
+            isLoading || (isBatchMode && cart.length < 2) || (mode === 'review' && reviewImages.length === 0)
               ? 'bg-slate-600 cursor-not-allowed text-slate-300'
-              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              : mode === 'review' 
+                ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_15px_rgba(79,70,229,0.4)]'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
           }`}
         >
           {isLoading ? (
@@ -1065,14 +1270,17 @@ const MatchInput: React.FC<MatchInputProps> = ({ onAnalyze, onLearn, onRecommend
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              분석 진행 중...
+              {mode === 'review' ? '이미지 분석 및 복기 중...' : '분석 진행 중...'}
             </span>
           ) : (
-             mode === 'proto' 
-             ? `🚀 프로토 승부식 분석 실행 (전체 예측)` 
-             : (mode === 'manual'
-                ? `🎲 최고의 ${folderCount}폴더 조합 추천받기`
-                : '⚽ 정밀 분석 시작')
+             mode === 'review'
+             ? `🔍 AI 자동 복기 시작 (Post-Mortem)`
+             : (mode === 'proto' 
+                 ? `🚀 프로토 승부식 분석 실행 (전체 예측)` 
+                 : (mode === 'manual'
+                    ? `🎲 최고의 ${folderCount}폴더 조합 추천받기`
+                    : '⚽ 정밀 분석 시작')
+               )
              )
           }
         </button>

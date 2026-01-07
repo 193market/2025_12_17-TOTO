@@ -262,24 +262,13 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
     const response = await fetch(url.toString(), { headers });
     
     if (!response.ok) {
-      const errorText = await response.text();
-      
-      // [RATE LIMIT HANDLING]
+      // [RATE LIMIT HANDLING FOR 429 STATUS]
       if (response.status === 429) {
          if (retries > 0) {
-            // [PAID PLAN] 축구는 유료이므로 빠르게 재시도
-            if (sport === 'football') {
-                const delay = 1000; 
-                console.warn(`[Football] API Rate Limit (429) - Retrying shortly... (${retries} left)`);
-                await wait(delay);
-                return fetchFromApi(sport, endpoint, params, retries - 1);
-            } else {
-                // [FREE PLAN] 다른 종목은 무료 플랜 정책을 따름 (대기 시간 김)
-                const delay = 6000; 
-                console.warn(`[${sport}] API Rate Limit (429) - Free Plan safety wait... (${retries} left)`);
-                await wait(delay);
-                return fetchFromApi(sport, endpoint, params, retries - 1);
-            }
+            const delay = 2500; // Increased to 2.5s for safety
+            console.warn(`[${sport}] API Rate Limit (429) - Retrying shortly... (${retries} left)`);
+            await wait(delay);
+            return fetchFromApi(sport, endpoint, params, retries - 1);
          }
          throw new Error(`API 요청 한도 초과 (429): 잠시 후 다시 시도해주세요.`);
       }
@@ -289,7 +278,18 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
 
     const json = await response.json();
     
+    // [RATE LIMIT HANDLING FOR 200 OK RESPONSES WITH ERRORS IN BODY]
     if (json.errors) {
+        // API-Sports often returns rate limit errors in the body with 200 status
+        if (json.errors.rateLimit || json.errors.requests) {
+             if (retries > 0) {
+                 const delay = 2500; // Wait 2.5s
+                 console.warn(`[API-Sports] Rate Limit Hit (Body) - Retrying... (${retries} left)`);
+                 await wait(delay);
+                 return fetchFromApi(sport, endpoint, params, retries - 1);
+             }
+        }
+
         const errorKeys = Object.keys(json.errors);
         if (errorKeys.length > 0) {
             const errorMsg = JSON.stringify(json.errors);
@@ -305,13 +305,11 @@ async function fetchFromApi(sport: SportType, endpoint: string, params: Record<s
     if (retries > 0 && (error.message?.includes('Failed to fetch') || error.name === 'TypeError')) {
         // [NETWORK ERROR HANDLING]
         if (sport === 'football') {
-            const delay = 1000; // Increased to 1000ms for better stability
+            const delay = 1500; 
             console.warn(`Network Error (${error.message}) - Retrying [Football]...`);
             await wait(delay); 
             return fetchFromApi(sport, endpoint, params, retries - 1);
         } else {
-            // 다른 종목은 API Key 권한 문제일 수 있으므로 무리하게 재시도하지 않음
-            console.warn(`Network Error on non-paid sport [${sport}]. Skipping retry to prevent spam.`);
             return null;
         }
     }

@@ -1,3 +1,4 @@
+
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import html2canvas from 'html2canvas';
@@ -84,15 +85,15 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
       let text = "AI Analysis Pattern & Logic:\n\n";
       if (batchResult.recommendedCombinations && batchResult.recommendedCombinations.length > 0) {
           batchResult.recommendedCombinations.forEach((combo) => {
-              text += `[Combination Logic]\nGlobal Insight: ${combo.totalReason}\n`;
+              text += `[Combination Logic]\nGlobal Insight: ${combo.totalReason}\nRisk Validation: ${combo.riskValidation || 'N/A'}\n`;
               combo.matches.forEach(m => {
-                 text += `- Match: ${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam}\n- Prediction: ${m.prediction}\n- Reasoning: ${m.reason}\n`;
+                 text += `- Match: ${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam}\n- Prediction: ${m.prediction}\n- Reasoning: ${m.reason}\n- Risk Type: ${m.riskType || 'N/A'}\n`;
               });
               text += "\n";
           });
       } else {
           batchResult.matches.forEach(m => {
-             text += `- Match: ${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam}\n- Prediction: ${m.prediction}\n- Reasoning: ${m.reason}\n\n`;
+             text += `- Match: ${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam}\n- Prediction: ${m.prediction}\n- Reasoning: ${m.reason}\n- Risk Type: ${m.riskType || 'N/A'}\n\n`;
           });
       }
       
@@ -158,6 +159,32 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
       }
   };
 
+  // [NEW] Risk Type Badge
+  const getRiskTypeBadge = (riskType: string | undefined) => {
+      if (!riskType) return null;
+      let colorClass = 'bg-slate-600 text-slate-200';
+      if (riskType === 'TYPE-A') colorClass = 'bg-red-900/50 text-red-300 border-red-500/30'; // Info Gap
+      else if (riskType === 'TYPE-B') colorClass = 'bg-blue-900/50 text-blue-300 border-blue-500/30'; // Motivation
+      else if (riskType === 'TYPE-C') colorClass = 'bg-yellow-900/50 text-yellow-300 border-yellow-500/30'; // Market
+      else if (riskType === 'TYPE-D') colorClass = 'bg-purple-900/50 text-purple-300 border-purple-500/30'; // Matchup
+
+      return (
+          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ml-1 border ${colorClass} uppercase tracking-wider`}>
+              {riskType}
+          </span>
+      );
+  };
+
+  const getStakeBadgeColor = (stakeStr: string | undefined) => {
+      if (!stakeStr) return 'bg-slate-700 text-slate-400';
+      const amount = parseInt(stakeStr.replace(/[^0-9]/g, ''), 10);
+      if (isNaN(amount)) return 'bg-slate-700 text-slate-400';
+      
+      if (amount >= 4000) return 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.4)]';
+      if (amount >= 2500) return 'bg-blue-600 text-white border-blue-400';
+      return 'bg-slate-600 text-slate-300 border-slate-500';
+  };
+
   const generatePdf = async (fileName: string) => {
     if (!contentRef.current) return;
     setIsPdfGenerating(true);
@@ -189,7 +216,22 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
   };
 
   const handleSinglePdfDownload = () => generatePdf('MatchInsight_Report');
-  const handleSingleTxtDownload = () => { if (content) downloadTxt(content, 'MatchInsight_Analysis.txt'); };
+  const handleSingleTxtDownload = () => { 
+      if (content) {
+          // Attempt to extract team names for filename
+          let filename = 'MatchInsight_Analysis.txt';
+          const titleMatch = content.match(/\[(.*?)\] (.*?) vs (.*?)\n/);
+          const reviewMatch = content.match(/매치:\*\*\s*(.*?) vs (.*?)\n/);
+          
+          if (reviewMatch) {
+              filename = `[복기]_${reviewMatch[1].trim()}_vs_${reviewMatch[2].trim()}.txt`;
+          } else if (titleMatch) {
+              filename = `[분석]_${titleMatch[2].trim()}_vs_${titleMatch[3].trim()}.txt`;
+          }
+          
+          downloadTxt(content, filename); 
+      }
+  };
   const handleBatchPdfDownload = () => generatePdf('MatchInsight_Batch_Report');
   const handleBatchTxtDownload = () => {
       if (!batchResult) return;
@@ -197,13 +239,17 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
       text += "      MATCH INSIGHT - PROTO REPORT\n";
       text += "========================================\n\n";
       
+      const dateStr = new Date().toISOString().slice(0, 10);
+      let filename = `MatchInsight_Proto_${dateStr}.txt`;
+
       if (batchResult.recommendedCombinations && batchResult.recommendedCombinations.length > 0) {
           batchResult.recommendedCombinations.forEach((combo) => {
               text += `[COMBINATION #${combo.rank}] - ${combo.expectedValue}\n`;
               text += `Reason: ${combo.totalReason}\n`;
+              text += `Risk Validation: ${combo.riskValidation || 'N/A'}\n`;
               combo.matches.forEach(m => {
                   const typeInfo = m.gameType ? `[${m.gameType}${m.criteria ? ` ${m.criteria}` : ''}] ` : '';
-                  text += `  - ${typeInfo}${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam} : [${m.prediction}] (Conf: ${m.confidence}%)\n`;
+                  text += `  - ${typeInfo}${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam} : [${m.prediction}] (Conf: ${m.confidence}%) - Stake: ${m.recommendedStake || 'N/A'} - [${m.riskType || 'N/A'}]\n`;
               });
               text += "\n";
           });
@@ -211,10 +257,18 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
           batchResult.matches.forEach((m, idx) => {
               text += `[GAME ${idx + 1}] ${m.homeTeamKo || m.homeTeam} vs ${m.awayTeamKo || m.awayTeam}\n`;
               const strategy = m.strategyStatus ? `[${m.strategyStatus}] ` : '';
-              text += `PICK: ${strategy}${m.prediction}\nConfidence: ${m.confidence}%\nReason: ${m.reason}\n\n`;
+              text += `PICK: ${strategy}${m.prediction}\nConfidence: ${m.confidence}%\nStake: ${m.recommendedStake || 'N/A'}\nReason: ${m.reason}\nRisk: ${m.riskType || 'N/A'}\n\n`;
           });
       }
-      downloadTxt(text, 'MatchInsight_Analysis_Report.txt');
+      downloadTxt(text, filename);
+  };
+
+  const handleEmailShare = () => {
+    if (!content) return;
+    const subject = encodeURIComponent("MatchInsight 복기 리포트");
+    const bodyText = content.replace(/\*\*/g, "").substring(0, 1500) + "... (내용이 길어 생략됨)";
+    const body = encodeURIComponent(bodyText);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
 
   const downloadTxt = (text: string, filename: string) => {
@@ -303,6 +357,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                                         <div className="flex items-center mb-2">
                                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold mr-2 ${m.gameType === 'Handicap' ? 'bg-purple-600/80 text-purple-100' : m.gameType === 'UnOver' ? 'bg-orange-600/80 text-orange-100' : m.gameType === 'Sum' ? 'bg-pink-600/80 text-pink-100' : 'bg-slate-600 text-slate-200'}`}>{m.gameType || 'General'}{m.criteria ? ` (${m.criteria})` : ''}</span>
                                             {getStrategyBadge(m.strategyStatus)}
+                                            {getRiskTypeBadge(m.riskType)}
                                             <div className="ml-auto text-xs text-slate-500 font-mono">VS</div>
                                         </div>
                                         <div className="flex flex-col w-full">
@@ -318,13 +373,28 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                                     </div>
                                     <div className="flex justify-between items-center mb-3 border-t border-slate-700 pt-3">
                                          <div className="flex items-center space-x-2"><span className="text-xs text-slate-400">예측 결과:</span><span className={`text-sm font-extrabold ${isHomeWin || isAwayWin || isSpecial ? 'text-red-400' : isCombo ? 'text-purple-400' : 'text-yellow-400'}`}>{m.prediction} {pick === 'HOME' && !isSpecial ? '(홈승)' : pick === 'AWAY' && !isSpecial ? '(원정승)' : pick === 'DRAW' && !isSpecial ? '(무승부)' : ''}</span></div>
-                                         <span className="text-xs text-emerald-400 font-mono font-bold">신뢰도 {m.confidence}%</span>
+                                         <div className="flex flex-col items-end">
+                                             <span className="text-xs text-emerald-400 font-mono font-bold">신뢰도 {m.confidence}%</span>
+                                             {m.recommendedStake && (
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border mt-1 ${getStakeBadgeColor(m.recommendedStake)}`}>
+                                                    💰 {m.recommendedStake}
+                                                </span>
+                                             )}
+                                         </div>
                                     </div>
                                     <div className="bg-slate-900 p-3 rounded border border-slate-700/50 shadow-inner"><p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{m.reason}</p></div>
                                 </div>
                                 );
                             })}
                         </div>
+                        {combo.riskValidation && (
+                             <div className="bg-emerald-900/20 px-4 py-2 border-t border-emerald-500/30">
+                                 <p className="text-[10px] text-emerald-400 font-bold flex items-center">
+                                     <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                     AI Stress Test: <span className="text-emerald-200 ml-1 font-normal">{combo.riskValidation}</span>
+                                 </p>
+                             </div>
+                        )}
                         <div className="p-4 bg-slate-900 text-slate-400 text-xs italic border-t border-slate-700 leading-relaxed"><span className="text-emerald-500 font-bold mr-1">AI Comment:</span>"{combo.totalReason}"</div>
                     </div>
                 ))}
@@ -377,6 +447,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                                     </div>
                                     <div className="flex items-center space-x-2">
                                         {getStrategyBadge(match.strategyStatus)}
+                                        {getRiskTypeBadge(match.riskType)}
                                         <button onClick={() => onSelectMatch && onSelectMatch(match.homeTeam, match.awayTeam, match.sport as SportType)} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-400 px-2 py-1 rounded border border-slate-600 transition-colors" data-html2canvas-ignore="true">
                                             정밀 재분석 🔄
                                         </button>
@@ -399,6 +470,11 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
                                                 <div className={`h-full rounded-full ${match.confidence >= 80 ? 'bg-emerald-500' : match.confidence >= 60 ? 'bg-yellow-500' : 'bg-slate-500'}`} style={{width: `${match.confidence}%`}}></div>
                                             </div>
                                             <span className="text-[10px] text-slate-500 mt-1 font-mono">{match.confidence}% Prob</span>
+                                            {match.recommendedStake && (
+                                                <div className={`mt-2 text-xs font-bold px-2 py-1 rounded border animate-pulse flex items-center ${getStakeBadgeColor(match.recommendedStake)}`}>
+                                                    💰 {match.recommendedStake}
+                                                </div>
+                                            )}
                                         </div>
                                         <div className={`flex-1 text-left ${isAwayWin ? 'opacity-100' : 'opacity-70'}`}>
                                             <span className={`block text-lg md:text-xl font-black leading-tight ${isAwayWin ? 'text-red-400' : 'text-slate-200'}`}>{match.awayTeamKo || match.awayTeam}</span>
@@ -474,6 +550,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ content, isLoading, g
         <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4 border-b border-slate-700 flex flex-col md:flex-row justify-between items-center gap-4" data-html2canvas-ignore="true">
            <h3 className="text-lg font-mono text-emerald-400 font-bold tracking-wider truncate">경기 분석 리포트 (Beginner Ver.)</h3>
            <div className="flex space-x-2">
+                <button onClick={handleEmailShare} className="text-xs bg-indigo-900/80 hover:bg-indigo-800 text-indigo-100 px-3 py-1.5 rounded transition-colors flex items-center border border-indigo-700/50 font-bold">📧 이메일 전송</button>
                 <button onClick={handleSingleTxtDownload} className="text-xs flex items-center bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded transition-colors border border-slate-600">TXT 저장</button>
                 <button onClick={handleSinglePdfDownload} disabled={isPdfGenerating} className={`text-xs flex items-center bg-red-900/80 hover:bg-red-800 text-white px-3 py-1.5 rounded transition-colors border border-red-700/50 ${isPdfGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>{isPdfGenerating ? '생성 중...' : 'PDF 저장'}</button>
                 <button onClick={() => handleLearnResult(content)} className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded transition-colors flex items-center font-bold shadow-md">🧠 결과 학습</button>

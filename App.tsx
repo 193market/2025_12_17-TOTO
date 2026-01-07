@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import MatchInput from './components/MatchInput';
 import AnalysisDisplay from './components/AnalysisDisplay';
@@ -15,9 +16,8 @@ const App: React.FC = () => {
   });
 
   const [learnedSamples, setLearnedSamples] = useState<TrainingSample[]>([]);
-  // [NEW] Key to force re-render of MatchInput on reset (입력 폼 초기화용)
   const [resetKey, setResetKey] = useState(0);
-  // [NEW] AbortController ref
+  const [isApiKeyReady, setIsApiKeyReady] = useState<boolean>(!!process.env.API_KEY);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -38,7 +38,41 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(learnedSamples));
   }, [learnedSamples]);
 
-  const apiKey = process.env.API_KEY || '';
+  useEffect(() => {
+    const checkKey = async () => {
+      if (process.env.API_KEY) {
+        setIsApiKeyReady(true);
+        return;
+      }
+      if (window.aistudio) {
+        try {
+            const has = await window.aistudio.hasSelectedApiKey();
+            if (has) {
+                setIsApiKeyReady(true);
+            }
+        } catch (e) {
+            console.error("Failed to check API key status", e);
+        }
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectApiKey = async () => {
+      if (window.aistudio) {
+          try {
+              await window.aistudio.openSelectKey();
+              // Race condition mitigation: Assume success
+              setIsApiKeyReady(true);
+              setResetKey(prev => prev + 1); // Force re-render
+          } catch (e) {
+              console.error("API Key selection failed", e);
+              alert("API 키 선택 중 오류가 발생했습니다. 다시 시도해주세요.");
+          }
+      } else {
+          alert("이 환경에서는 API 키 자동 선택을 지원하지 않습니다. .env 파일을 확인해주세요.");
+      }
+  };
 
   const handleLearn = (newSamples: TrainingSample[]) => {
     setLearnedSamples(prev => {
@@ -55,27 +89,20 @@ const App: React.FC = () => {
     }
   };
 
-  // [NEW] 앱 초기화 핸들러 (홈 버튼 기능)
   const handleReset = () => {
-      // 진행 중인 분석 중지
       if (abortControllerRef.current) {
           abortControllerRef.current.abort();
           abortControllerRef.current = null;
       }
-      
-      // 결과 상태 초기화 (메인 화면으로 복귀)
       setAnalysisState({
           isLoading: false,
           data: null,
           error: null,
           batchResult: null,
       });
-
-      // 입력 폼 컴포넌트를 완전히 새로고침하여 입력값 초기화
       setResetKey(prev => prev + 1);
   };
 
-  // [NEW] 분석 중지 핸들러
   const handleStopAnalysis = () => {
       if (abortControllerRef.current) {
           abortControllerRef.current.abort();
@@ -88,14 +115,13 @@ const App: React.FC = () => {
       }
   };
 
-  // 기존 단일/종합 분석 핸들러
   const handleAnalyze = async (data: MatchData) => {
-    if (!apiKey) {
-      setAnalysisState({ isLoading: false, data: null, error: "API 키가 누락되었습니다. 환경 변수 설정을 확인해주세요." });
+    const currentApiKey = process.env.API_KEY;
+    if (!currentApiKey) {
+      setAnalysisState({ isLoading: false, data: null, error: "API 키가 누락되었습니다. 상단의 키 설정을 확인해주세요." });
       return;
     }
     
-    // 이전 요청 취소 및 새 컨트롤러 생성
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
@@ -107,11 +133,11 @@ const App: React.FC = () => {
 
       const result = await analyzeMatch(
           finalMatchData, 
-          apiKey, 
+          currentApiKey, 
           (chunkText) => {
              setAnalysisState(prev => ({ ...prev, data: (prev.data || "") + chunkText }));
           },
-          abortControllerRef.current.signal // [NEW] Pass signal
+          abortControllerRef.current.signal
       );
 
       setAnalysisState(prev => ({ isLoading: false, data: result.text || prev.data || "분석 결과가 없습니다.", groundingMetadata: result.groundingMetadata, error: null, batchResult: null }));
@@ -122,14 +148,13 @@ const App: React.FC = () => {
     }
   };
 
-  // [UPDATED] 조합 추천 핸들러 (analysisMode 추가)
-  const handleRecommend = async (cartItems: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean, analysisMode: 'combination' | 'all', targetGameType?: GameType) => {
-     if (!apiKey) {
+  const handleRecommend = async (cartItems: CartItem[], folderCount: number, recommendationCount: number, useAutoSearch: boolean, analysisMode: 'combination' | 'all', targetGameType?: GameType, globalStrategy?: string) => {
+     const currentApiKey = process.env.API_KEY;
+     if (!currentApiKey) {
        setAnalysisState({ isLoading: false, data: null, error: "API 키가 누락되었습니다." });
        return;
      }
 
-     // 이전 요청 취소 및 새 컨트롤러 생성
      if (abortControllerRef.current) abortControllerRef.current.abort();
      abortControllerRef.current = new AbortController();
 
@@ -142,16 +167,17 @@ const App: React.FC = () => {
      try {
        const result = await recommendCombination(
            cartItems, 
-           apiKey, 
+           currentApiKey, 
            (statusMsg) => {
-               setAnalysisState(prev => ({ ...prev, data: statusMsg })); // 상태 메시지 표시
+               setAnalysisState(prev => ({ ...prev, data: statusMsg }));
            }, 
            folderCount, 
            recommendationCount, 
            useAutoSearch,
            abortControllerRef.current.signal,
-           analysisMode, // [NEW] Pass mode
-           targetGameType // [NEW] Pass targetGameType
+           analysisMode,
+           targetGameType,
+           globalStrategy
        );
        
        setAnalysisState({ isLoading: false, data: null, batchResult: result, error: null });
@@ -162,9 +188,7 @@ const App: React.FC = () => {
      }
   };
 
-  // [NEW] 배치 결과에서 단일 정밀 분석으로 전환 (자동 검색 ON)
   const handleSelectMatchFromBatch = (home: string, away: string, sport: SportType) => {
-      // 즉시 정밀 분석 실행 (조합에서 넘어온 경우 정확도를 위해 자동 검색 기본 활성화)
       handleAnalyze({
           sport,
           homeTeam: home,
@@ -173,6 +197,46 @@ const App: React.FC = () => {
           useAutoSearch: true 
       });
   };
+
+  // [RENDER] API Key Selection Screen
+  if (!isApiKeyReady) {
+      return (
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center font-sans">
+              <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up">
+                  <div className="mb-6 flex justify-center">
+                       <div className="bg-emerald-500/20 p-4 rounded-full">
+                           <svg className="w-12 h-12 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                       </div>
+                  </div>
+                  <h1 className="text-2xl font-bold text-white mb-2">API 키 설정 필요</h1>
+                  <p className="text-slate-400 mb-8 text-sm leading-relaxed">
+                      MatchInsight AI를 사용하려면 <strong>Google Gemini API 키</strong>가 필요합니다.<br/>
+                      Gemini 3.0 Pro 모델(유료 권장)을 사용하기 위해<br/>
+                      아래 버튼을 눌러 키를 선택해주세요.
+                  </p>
+                  
+                  <button 
+                      onClick={handleSelectApiKey}
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-transform transform hover:scale-[1.02] active:scale-95 mb-4"
+                  >
+                      🔑 API 키 선택 / 연결하기
+                  </button>
+
+                  <div className="text-xs text-slate-600 space-y-2">
+                       <p>
+                           * API 키는 브라우저에 저장되지 않으며<br/>
+                           Google 환경 변수를 통해 안전하게 주입됩니다.
+                       </p>
+                       <p>
+                           <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-400 transition-colors">
+                               Billing(결제) 설정 안내 보기
+                           </a>
+                       </p>
+                  </div>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-emerald-500/30">
@@ -221,7 +285,7 @@ const App: React.FC = () => {
           <p className="text-lg text-slate-400 max-w-2xl mx-auto">API-Sports의 실시간 데이터와 Gemini의 추론 능력을 결합하여 축구, 농구, 야구 등 다양한 경기의 역학을 해석합니다.</p>
         </div>
 
-        {/* [STOP BUTTON UI] - Only when loading */}
+        {/* [STOP BUTTON UI] */}
         {analysisState.isLoading && (
             <div className="fixed bottom-8 right-8 z-50 animate-bounce">
                 <button 
@@ -242,7 +306,6 @@ const App: React.FC = () => {
         )}
 
         <div className="mb-12">
-          {/* [UPDATE] key prop for resetting component state when Reset button is clicked */}
           <MatchInput 
             key={resetKey}
             onAnalyze={handleAnalyze} 
@@ -254,15 +317,14 @@ const App: React.FC = () => {
           />
         </div>
 
-        {/* [UPDATED] Pass isLoading to AnalysisDisplay */}
         {(analysisState.data || analysisState.batchResult || analysisState.isLoading) && (
           <AnalysisDisplay 
             content={analysisState.data} 
             isLoading={analysisState.isLoading}
             groundingMetadata={analysisState.groundingMetadata}
             batchResult={analysisState.batchResult} 
-            onSelectMatch={handleSelectMatchFromBatch} // [NEW] Pass match selection handler
-            onLearn={handleLearn} // [NEW] Pass learner
+            onSelectMatch={handleSelectMatchFromBatch}
+            onLearn={handleLearn} 
           />
         )}
         

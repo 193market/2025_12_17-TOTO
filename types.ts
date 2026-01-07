@@ -21,6 +21,7 @@ export interface MatchData {
     noContextAnalysis: string;
   };
   trainingData?: string[];
+  images?: string[]; // [UPDATED] 다중 이미지 지원 (Base64 string array)
 }
 
 export interface AnalysisState {
@@ -39,6 +40,7 @@ export enum AnalysisStatus {
 }
 
 export type GameType = 'General' | 'Handicap' | 'UnOver' | 'Sum' | 'Mixed';
+export type AnalysisStrategy = 'ALL' | 'AXIS' | 'TRAP' | 'ERASER'; // [NEW] 분석 전략 타입
 
 export interface CartItem {
   id: string;
@@ -60,11 +62,13 @@ export interface AnalyzedMatchItem {
   prediction: string; // "승", "무", "패", "승/무", "승/무/패" 등
   confidence: number;
   reason: string;
+  recommendedStake?: string; // [NEW] 권장 베팅 금액 (예: "5,000원")
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   odds?: { home: string; draw: string; away: string }; // [NEW] 배당률 정보
   gameType?: GameType; // [NEW] 분석된 게임 유형
   criteria?: string;   // [NEW] 분석된 기준점
   strategyStatus?: 'AXIS' | 'TRAP' | 'ERASER' | 'NONE'; // [NEW] 3단계 전략 분류
+  riskType?: 'TYPE-A' | 'TYPE-B' | 'TYPE-C' | 'TYPE-D'; // [NEW] 리스크 유형 (정보, 동기, 시장, 상성)
 }
 
 export interface RecommendedCombination {
@@ -72,6 +76,7 @@ export interface RecommendedCombination {
   matches: AnalyzedMatchItem[];
   totalReason: string;
   expectedValue: string; // "High", "Medium" etc.
+  riskValidation?: string; // [NEW] 리스크 디커플링 검증 메시지 (스트레스 테스트 결과)
 }
 
 export interface BatchAnalysisResult {
